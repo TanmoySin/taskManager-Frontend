@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { useAppDispatch } from '../../../store/hooks';
-import { setCredentials } from '../../../store/authSlice';
+import { setSession } from '../../../store/authSlice';
 import api from '../../../lib/api';
 import Button from '../../../components/ui/Button';
 
@@ -33,9 +33,9 @@ export default function VerifyEmail() {
 
             // Auto-login after successful verification
             if (response.data.token && response.data.user) {
-                dispatch(setCredentials({
-                    token: response.data.token,
+                dispatch(setSession({
                     user: response.data.user,
+                    sessionId: response.data.sessionId || '',
                 }));
 
                 // Redirect to dashboard after 2 seconds

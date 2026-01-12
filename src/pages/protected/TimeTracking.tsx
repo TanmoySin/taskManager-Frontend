@@ -30,7 +30,7 @@ export default function TimeTracking() {
     const { data: summary } = useQuery({
         queryKey: ['timeSummary', filters],
         queryFn: async () => {
-            const response = await api.get('/time-tracking/summary', { params: filters });
+            const response = await api.get('/time-tracking/entries/summary', { params: filters });
             return response.data;
         },
     });

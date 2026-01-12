@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Mail, AlertCircle } from 'lucide-react';
 import { useAppDispatch } from '../../../store/hooks';
 import api from '../../../lib/api';
-import { setCredentials } from '../../../store/authSlice';
+import { setSession } from '../../../store/authSlice';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
@@ -55,9 +55,9 @@ export default function AcceptInvitation() {
             });
 
             // Auto-login
-            dispatch(setCredentials({
-                token: response.data.token,
+            dispatch(setSession({
                 user: response.data.user,
+                sessionId: response.data.sessionId || '',
             }));
 
             navigate('/dashboard');

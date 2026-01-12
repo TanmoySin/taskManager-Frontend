@@ -226,12 +226,12 @@ export default function KanbanBoard() {
     });
 
     // Fetch projects
-    const { data: projects } = useQuery({
+    const { data: projects = [] } = useQuery<any[]>({
         queryKey: ['projects'],
         queryFn: async () => {
             const response = await api.get('/projects');
-            // if your /projects returns {projects, count}, adjust here
-            return response.data.projects || response.data;
+            const projectsData = response.data.projects ?? response.data;
+            return Array.isArray(projectsData) ? projectsData : [];
         },
     });
 

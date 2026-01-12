@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAppDispatch } from '../../store/hooks';
-import { setCredentials } from '../../store/authSlice';
+import { setSession } from '../../store/authSlice';
 import api from '../../lib/api';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -24,14 +24,13 @@ export default function Homepage() {
 
         try {
             const response = await api.post('/auth/login', { email, password });
-            const { token, user, sessionId } = response.data;
+            const { user, sessionId } = response.data;
 
-            dispatch(setCredentials({ token, user, sessionId }));
+            dispatch(setSession({ user, sessionId }));
             navigate('/dashboard');
         } catch (err: any) {
             const errorMsg = err.response?.data?.error || 'Invalid credentials';
             setError(errorMsg);
-
             if (err.response?.data?.emailNotVerified) {
                 setNeedsVerification(true);
             }

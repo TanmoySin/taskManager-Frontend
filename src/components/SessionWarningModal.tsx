@@ -1,29 +1,29 @@
 import { type FC } from 'react';
 import { AlertCircle, X } from 'lucide-react';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { setSessionWarning, updateSessionActivity } from '../store/authSlice';
-import Button from './ui/Button';
+import { useAppSelector } from '../store/hooks';
 import api from '../lib/api';
+import Button from './ui/Button';
 
 const SessionWarningModal: FC = () => {
-    const dispatch = useAppDispatch();
-    const { isSessionWarning, sessionExpiry } = useAppSelector((state) => state.auth);
+    const { isSessionWarning, sessionInfo } = useAppSelector((state) => state.auth);
 
-    if (!isSessionWarning) return null;
+    if (!isSessionWarning || !sessionInfo) return null;
 
-    const timeRemaining = sessionExpiry ? Math.floor((sessionExpiry - Date.now()) / 1000) : 0;
+    const timeRemaining = Math.floor(sessionInfo.idleTimeRemaining / 1000);
     const minutes = Math.floor(timeRemaining / 60);
     const seconds = timeRemaining % 60;
 
     const handleStayLoggedIn = async () => {
         try {
-            // Make a lightweight API call to extend session
+            // API call extends session on backend
             await api.get('/auth/session-status');
-            dispatch(updateSessionActivity());
-            dispatch(setSessionWarning(false));
         } catch (error) {
             console.error('Failed to extend session:', error);
         }
+    };
+
+    const handleDismiss = () => {
+        // Let session expire naturally - no state change needed
     };
 
     return (
@@ -47,8 +47,9 @@ const SessionWarningModal: FC = () => {
                         </div>
                     </div>
                     <button
-                        onClick={() => dispatch(setSessionWarning(false))}
+                        onClick={handleDismiss}
                         className="text-gray-400 hover:text-gray-600"
+                        aria-label="Close warning"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -61,7 +62,7 @@ const SessionWarningModal: FC = () => {
                 <div className="flex gap-3">
                     <Button
                         variant="secondary"
-                        onClick={() => dispatch(setSessionWarning(false))}
+                        onClick={handleDismiss}
                         className="flex-1"
                     >
                         Dismiss

@@ -129,8 +129,8 @@ const AddMemberModal: FC<AddMemberModalProps> = ({
                                 <label
                                     key={user._id}
                                     className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${selectedUserId === user._id
-                                            ? 'bg-blue-50 border border-blue-200'
-                                            : 'hover:bg-gray-50 border border-transparent'
+                                        ? 'bg-blue-50 border border-blue-200'
+                                        : 'hover:bg-gray-50 border border-transparent'
                                         }`}
                                 >
                                     <input

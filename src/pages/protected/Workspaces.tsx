@@ -1,7 +1,7 @@
-// src/pages/Workspaces.tsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useAppSelector } from '../../store/hooks'; // 🔥 ADD THIS
 import api from '../../lib/api';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -26,6 +26,9 @@ export default function Workspaces() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editWorkspace, setEditWorkspace] = useState<any>(null);
     const [searchQuery, setSearchQuery] = useState('');
+
+    // 🔥 GLOBAL USER ROLE FROM REDUX
+    const userRole = useAppSelector((state) => state.auth.user?.role);
 
     const { data: workspaces, isLoading } = useQuery({
         queryKey: ['workspaces'],
@@ -52,36 +55,52 @@ export default function Workspaces() {
         workspace.name.toLowerCase().includes(searchQuery.toLowerCase()),
     );
 
-    const getWorkspaceMenuItems = (workspace: any) => [
-        {
-            label: 'View Details',
-            icon: <Eye className="w-4 h-4" />,
-            onClick: () => {
-                navigate(`/workspaces/${workspace._id}`);
+    // 🔥 PERMISSION CHECKS FROM BACKEND SPEC [file:1]
+    const canCreateWorkspace = userRole === 'Administrator';
+    const isWorkspaceAdmin = (workspace: any) =>
+        workspace.userWorkspaceRole === 'Administrator' || workspace.isOwner;
+    // const isWorkspaceOwner = (workspace: any) => workspace.isOwner;
+
+    const getWorkspaceMenuItems = (workspace: any) => {
+        const items: any[] = [
+            {
+                label: 'View Details',
+                icon: <Eye className="w-4 h-4" />,
+                onClick: () => {
+                    navigate(`/workspaces/${workspace._id}`);
+                },
             },
-        },
-        {
-            label: 'Edit Workspace',
-            icon: <Edit className="w-4 h-4" />,
-            onClick: () => {
-                setEditWorkspace(workspace);
-            },
-        },
-        {
-            label: 'Delete Workspace',
-            icon: <Trash2 className="w-4 h-4" />,
-            onClick: () => {
-                if (
-                    confirm(
-                        `Delete workspace "${workspace.name}"? This action cannot be undone.`,
-                    )
-                ) {
-                    deleteWorkspaceMutation.mutate(workspace._id);
-                }
-            },
-            variant: 'danger' as const,
-        },
-    ];
+        ];
+
+        // 🔥 ONLY SHOW EDIT/DELETE FOR WORKSPACE ADMINS
+        if (isWorkspaceAdmin(workspace)) {
+            items.push(
+                {
+                    label: 'Edit Workspace',
+                    icon: <Edit className="w-4 h-4" />,
+                    onClick: () => {
+                        setEditWorkspace(workspace);
+                    },
+                },
+                {
+                    label: 'Delete Workspace',
+                    icon: <Trash2 className="w-4 h-4" />,
+                    onClick: () => {
+                        if (
+                            confirm(
+                                `Delete workspace "${workspace.name}"? This action cannot be undone.`,
+                            )
+                        ) {
+                            deleteWorkspaceMutation.mutate(workspace._id);
+                        }
+                    },
+                    variant: 'danger' as const,
+                },
+            );
+        }
+
+        return items;
+    };
 
     const handleCardClick = (workspaceId: string) => {
         navigate(`/workspaces/${workspaceId}`);
@@ -97,14 +116,22 @@ export default function Workspaces() {
                         {workspaces?.length || 0} workspaces
                     </p>
                 </div>
-                <Button
-                    variant="primary"
-                    size="md"
-                    onClick={() => setIsCreateModalOpen(true)}
-                >
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Workspace
-                </Button>
+
+                {/* 🔥 CREATE BUTTON - GLOBAL ADMIN ONLY */}
+                {canCreateWorkspace ? (
+                    <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => setIsCreateModalOpen(true)}
+                    >
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Workspace
+                    </Button>
+                ) : (
+                    <div className="text-sm text-gray-500">
+                        Contact Global Admin to create workspaces
+                    </div>
+                )}
             </div>
 
             {/* Search */}
@@ -163,25 +190,34 @@ export default function Workspaces() {
                                                 Owner:{' '}
                                                 {workspace.ownerId?.name || 'Unknown'}
                                             </span>
+                                            {/* 🔥 SHOW USER'S WORKSPACE ROLE */}
+                                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                                {workspace.userWorkspaceRole}
+                                            </span>
+                                            {workspace.isOwner && (
+                                                <span className="text-xs text-blue-600 font-semibold">(Owner)</span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Right side - Dropdown menu */}
-                                <div className="flex-shrink-0 ml-2">
-                                    <DropdownMenu
-                                        trigger={
-                                            <button
-                                                type="button"
-                                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                            >
-                                                <MoreVertical className="w-4 h-4 text-gray-500" />
-                                            </button>
-                                        }
-                                        items={getWorkspaceMenuItems(workspace)}
-                                        align="right"
-                                    />
-                                </div>
+                                {/* Right side - Dropdown menu - ADMINS ONLY */}
+                                {isWorkspaceAdmin(workspace) && (
+                                    <div className="flex-shrink-0 ml-2">
+                                        <DropdownMenu
+                                            trigger={
+                                                <button
+                                                    type="button"
+                                                    className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                                >
+                                                    <MoreVertical className="w-4 h-4 text-gray-500" />
+                                                </button>
+                                            }
+                                            items={getWorkspaceMenuItems(workspace)}
+                                            align="right"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </Card>
                     ))}
@@ -195,7 +231,9 @@ export default function Workspaces() {
                                 ? 'No workspaces yet'
                                 : 'No workspaces match your search'}
                         </p>
-                        {workspaces?.length === 0 ? (
+
+                        {/* 🔥 CREATE BUTTON - GLOBAL ADMIN ONLY */}
+                        {canCreateWorkspace ? (
                             <Button
                                 variant="primary"
                                 size="md"
@@ -205,13 +243,9 @@ export default function Workspaces() {
                                 Create Workspace
                             </Button>
                         ) : (
-                            <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => setSearchQuery('')}
-                            >
-                                Clear Search
-                            </Button>
+                            <div className="text-sm text-gray-500">
+                                Contact Global Admin to create workspaces
+                            </div>
                         )}
                     </div>
                 </Card>

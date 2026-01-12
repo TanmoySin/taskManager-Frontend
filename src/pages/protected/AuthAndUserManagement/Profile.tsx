@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { User as UserIcon, Mail, Shield, Calendar, CheckCircle, AlertCircle, Camera } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import api from '../../../lib/api';
-import { updateUser } from '../../../store/authSlice';
+import { setSession } from '../../../store/authSlice';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 
@@ -20,7 +20,10 @@ export default function Profile() {
     const fetchUserData = async () => {
         try {
             const response = await api.get('/auth/me');
-            dispatch(updateUser(response.data.user));
+            dispatch(setSession({
+                user: response.data,
+                sessionId: response.data.sessionId || ''
+            }));
         } catch (err) {
             console.error('Failed to fetch user data:', err);
         }
@@ -33,7 +36,7 @@ export default function Profile() {
 
         try {
             await api.put(`/auth/users/${currentUser?.id}`, { name });
-            dispatch(updateUser({ name }));
+            await fetchUserData();
             setMessage({ type: 'success', text: 'Profile updated successfully!' });
         } catch (err: any) {
             setMessage({ type: 'error', text: err.response?.data?.error || 'Failed to update profile' });

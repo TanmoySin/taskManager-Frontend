@@ -9,79 +9,68 @@ interface User {
   avatarUrl?: string;
 }
 
+interface SessionInfo {
+  isActive: boolean;
+  idleTimeRemaining: number;
+  absoluteTimeRemaining: number;
+  lastActivity: number;
+  createdAt: number;
+}
+
 interface AuthState {
-  token: string | null;
   user: User | null;
   isAuthenticated: boolean;
   sessionId: string | null;
-  sessionExpiry: number | null;
-  lastActivity: number | null;
+  sessionInfo: SessionInfo | null;
   isSessionWarning: boolean;
+  isCheckingSession: boolean;
 }
 
 const initialState: AuthState = {
-  token: null,
   user: null,
   isAuthenticated: false,
   sessionId: null,
-  sessionExpiry: null,
-  lastActivity: null,
+  sessionInfo: null,
   isSessionWarning: false,
+  isCheckingSession: false,
 };
 
 const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    setCredentials: (
+    setSession: (
       state,
-      action: PayloadAction<{ token: string; user: User; sessionId?: string }>
+      action: PayloadAction<{
+        user: User;
+        sessionId: string;
+        sessionInfo?: SessionInfo;
+      }>
     ) => {
-      state.token = action.payload.token;
       state.user = action.payload.user;
+      state.sessionId = action.payload.sessionId;
+      state.sessionInfo = action.payload.sessionInfo || null;
       state.isAuthenticated = true;
-      state.sessionId = action.payload.sessionId || null;
-      state.lastActivity = Date.now();
-      state.sessionExpiry = Date.now() + 30 * 60 * 1000;
-    },
-    updateUser: (state, action: PayloadAction<Partial<User>>) => {
-      if (state.user) {
-        state.user = { ...state.user, ...action.payload };
-      }
-    },
-    // Update session activity
-    updateSessionActivity: (state) => {
-      state.lastActivity = Date.now();
-      state.sessionExpiry = Date.now() + 30 * 60 * 1000;
       state.isSessionWarning = false;
     },
-    // Show session warning
-    setSessionWarning: (state, action: PayloadAction<boolean>) => {
-      state.isSessionWarning = action.payload;
+    updateSessionInfo: (state, action: PayloadAction<SessionInfo>) => {
+      state.sessionInfo = action.payload;
+      state.isSessionWarning = action.payload.idleTimeRemaining < 120000; // 2min
     },
-    // Update session expiry from server
-    updateSessionExpiry: (state, action: PayloadAction<number>) => {
-      state.sessionExpiry = action.payload;
+    setCheckingSession: (state, action: PayloadAction<boolean>) => {
+      state.isCheckingSession = action.payload;
     },
     logout: (state) => {
-      state.token = null;
       state.user = null;
       state.isAuthenticated = false;
       state.sessionId = null;
-      state.sessionExpiry = null;
-      state.lastActivity = null;
+      state.sessionInfo = null;
       state.isSessionWarning = false;
+      state.isCheckingSession = false;
     },
   },
 });
 
-export const {
-  setCredentials,
-  updateUser,
-  updateSessionActivity,
-  setSessionWarning,
-  updateSessionExpiry,
-  logout,
-} = authSlice.actions;
-
+export const { setSession, updateSessionInfo, setCheckingSession, logout } =
+  authSlice.actions;
 export default authSlice.reducer;

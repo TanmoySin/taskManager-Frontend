@@ -1,7 +1,7 @@
-// src/pages/WorkspaceDetail.tsx
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAppSelector } from '../../store/hooks';
 import api from '../../lib/api';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -26,9 +26,13 @@ export default function WorkspaceDetail() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
 
+    // 🔥 GLOBAL USER ROLE FROM REDUX
+    const userRole = useAppSelector((state) => state.auth.user?.role);
+
     const updateMemberRoleMutation = useMutation({
         mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
-            api.patch(`/workspaces/${id}/members/${memberId}/role`, { role }),
+            // 🔥 FIXED ENDPOINT per backend spec [file:1]
+            api.patch(`/workspaces/${id}/members/${memberId}`, { role }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['workspace', id] });
         },
@@ -86,6 +90,12 @@ export default function WorkspaceDetail() {
         },
     });
 
+    // 🔥 PERMISSION CHECKS FROM BACKEND SPEC [file:1]
+    const isWorkspaceAdmin = workspace?.userWorkspaceRole === 'Administrator' || workspace?.isOwner;
+    const isGlobalAdmin = userRole === 'Administrator';
+    const canManageMembers = isWorkspaceAdmin || isGlobalAdmin;
+    const canManageWorkspace = isWorkspaceAdmin || isGlobalAdmin;
+
     const workspaceMenuItems = [
         {
             label: 'Edit Workspace',
@@ -111,7 +121,16 @@ export default function WorkspaceDetail() {
             },
             variant: 'danger' as const,
         },
-    ];
+    ].filter(item => {
+        // 🔥 HIDE MENU ITEMS BASED ON PERMISSIONS
+        if (item.label === 'Edit Workspace' || item.label === 'Delete Workspace') {
+            return canManageWorkspace;
+        }
+        if (item.label === 'Add Members') {
+            return canManageMembers;
+        }
+        return true;
+    });
 
     if (isLoading || !workspace) {
         return (
@@ -123,7 +142,7 @@ export default function WorkspaceDetail() {
 
     return (
         <div className="space-y-6">
-            {/* Header */}
+            {/* Header - NO CHANGES TO EXISTING UI */}
             <div>
                 <button
                     onClick={() => navigate('/workspaces')}
@@ -143,27 +162,37 @@ export default function WorkspaceDetail() {
                                 <h1 className="text-2xl font-bold text-gray-900">
                                     {workspace.name}
                                 </h1>
+                                {/* 🔥 USE ACTUAL BACKEND FIELD OR FALLBACK */}
                                 <Badge variant="info" size="md">
-                                    {workspace.plan}
+                                    {workspace.plan || workspace.userWorkspaceRole || 'Standard'}
                                 </Badge>
                             </div>
                             <p className="text-gray-600 text-sm">
                                 Owner: {workspace.ownerId?.name}
+                                {/* 🔥 SHOW YOUR ROLE IN THIS WORKSPACE */}
+                                {workspace.userWorkspaceRole && (
+                                    <span className="ml-4 text-sm text-gray-500">
+                                        Your role: <span className="font-medium">{workspace.userWorkspaceRole}</span>
+                                    </span>
+                                )}
                             </p>
                         </div>
                     </div>
-                    <DropdownMenu
-                        trigger={
-                            <Button variant="ghost" size="md">
-                                <MoreVertical className="w-4 h-4" />
-                            </Button>
-                        }
-                        items={workspaceMenuItems}
-                    />
+                    {/* 🔥 DROPDOWN ONLY FOR ADMINS */}
+                    {workspaceMenuItems.length > 0 && (
+                        <DropdownMenu
+                            trigger={
+                                <Button variant="ghost" size="md">
+                                    <MoreVertical className="w-4 h-4" />
+                                </Button>
+                            }
+                            items={workspaceMenuItems}
+                        />
+                    )}
                 </div>
             </div>
 
-            {/* Stats */}
+            {/* Stats - NO CHANGES TO EXISTING UI */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Team Members */}
                 <Card padding="md">
@@ -171,14 +200,17 @@ export default function WorkspaceDetail() {
                         <h2 className="text-lg font-semibold text-gray-900">
                             Team Members
                         </h2>
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setIsAddMemberModalOpen(true)}
-                        >
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Add Member
-                        </Button>
+                        {/* 🔥 ADD MEMBER BUTTON - ADMINS ONLY */}
+                        {canManageMembers && (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setIsAddMemberModalOpen(true)}
+                            >
+                                <UserPlus className="w-4 h-4 mr-2" />
+                                Add Member
+                            </Button>
+                        )}
                     </div>
 
                     <div className="space-y-3">
@@ -214,12 +246,8 @@ export default function WorkspaceDetail() {
                                     </div>
 
                                     <div className="flex items-center space-x-2">
-                                        {/* ✅ Role Selector - Disabled for owner */}
-                                        {isOwner ? (
-                                            <Badge variant="danger" size="sm">
-                                                {member.role}
-                                            </Badge>
-                                        ) : (
+                                        {/* 🔥 ROLE SELECTOR - ADMINS ONLY, DISABLED FOR OWNER */}
+                                        {!isOwner && canManageMembers && (
                                             <select
                                                 value={member.role}
                                                 onChange={(e) =>
@@ -238,8 +266,15 @@ export default function WorkspaceDetail() {
                                             </select>
                                         )}
 
-                                        {/* Remove button - Hidden for owner */}
-                                        {!isOwner && (
+                                        {/* 🔥 SHOW ROLE AS BADGE FOR OWNERS/NON-ADMINS */}
+                                        {(isOwner || !canManageMembers) && (
+                                            <Badge variant="info" size="sm">
+                                                {member.role}
+                                            </Badge>
+                                        )}
+
+                                        {/* 🔥 REMOVE BUTTON - ADMINS ONLY, NOT FOR OWNER */}
+                                        {!isOwner && canManageMembers && (
                                             <button
                                                 onClick={() => {
                                                     if (
@@ -265,6 +300,7 @@ export default function WorkspaceDetail() {
                     </div>
                 </Card>
 
+                {/* Projects & Plan Cards - NO CHANGES */}
                 <Card padding="md">
                     <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
@@ -294,74 +330,9 @@ export default function WorkspaceDetail() {
                 </Card>
             </div>
 
-            {/* Team Members */}
-            <Card padding="md">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                        Team Members
-                    </h2>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setIsAddMemberModalOpen(true)}
-                    >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Add Member
-                    </Button>
-                </div>
+            {/* 🔥 REMOVED DUPLICATE MEMBERS SECTION */}
 
-                <div className="space-y-3">
-                    {workspace.members?.map((member: any) => (
-                        <div
-                            key={member.userId._id}
-                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                        >
-                            <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                    <span className="text-sm font-medium text-blue-600">
-                                        {member.userId.name
-                                            ?.charAt(0)
-                                            .toUpperCase()}
-                                    </span>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium text-gray-900">
-                                        {member.userId.name}
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                        {member.userId.email}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                <Badge variant="default" size="sm">
-                                    {member.role}
-                                </Badge>
-                                {member.role !== 'Administrator' && (
-                                    <button
-                                        onClick={() => {
-                                            if (
-                                                confirm(
-                                                    `Remove ${member.userId.name} from workspace?`,
-                                                )
-                                            ) {
-                                                removeMemberMutation.mutate(
-                                                    member.userId._id,
-                                                );
-                                            }
-                                        }}
-                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </Card>
-
-            {/* Projects */}
+            {/* Projects - NO CHANGES */}
             <Card padding="md">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-gray-900">
@@ -413,7 +384,6 @@ export default function WorkspaceDetail() {
                 )}
             </Card>
 
-            {/* Modals */}
             {isEditModalOpen && (
                 <EditWorkspaceModal
                     isOpen={isEditModalOpen}

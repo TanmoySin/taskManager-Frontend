@@ -1,11 +1,12 @@
 // src/components/modals/EditWorkspaceModal.tsx
 import { type FC, useState, useEffect } from 'react';
+import { useAppSelector } from '../../store/hooks'; // 🔥 ADD THIS
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
-import { Building2 } from 'lucide-react';
+import { Building2, AlertCircle } from 'lucide-react';
 
 interface EditWorkspaceModalProps {
     isOpen: boolean;
@@ -22,6 +23,12 @@ const EditWorkspaceModal: FC<EditWorkspaceModalProps> = ({
     const [formData, setFormData] = useState({
         name: '',
     });
+
+    // 🔥 PERMISSION CHECKS
+    const userRole = useAppSelector((state) => state.auth.user?.role);
+    const isGlobalAdmin = userRole === 'Administrator';
+    const isWorkspaceAdmin = workspace?.userWorkspaceRole === 'Administrator' || workspace?.isOwner;
+    const canEditWorkspace = isGlobalAdmin || isWorkspaceAdmin;
 
     useEffect(() => {
         if (workspace) {
@@ -54,50 +61,72 @@ const EditWorkspaceModal: FC<EditWorkspaceModalProps> = ({
         updateWorkspaceMutation.mutate(formData);
     };
 
+    // 🔥 CLOSE MODAL IF NO PERMISSION
+    if (!canEditWorkspace && isOpen) {
+        onClose();
+    }
+
     return (
         <Modal
-            isOpen={isOpen}
+            isOpen={isOpen && canEditWorkspace}
             onClose={onClose}
             title="Edit Workspace"
             size="md"
         >
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="flex items-center justify-center mb-4">
-                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                        <Building2 className="w-8 h-8 text-blue-600" />
+            {/* 🔥 PERMISSION DENIED MESSAGE */}
+            {!canEditWorkspace ? (
+                <div className="py-8 px-6 text-center">
+                    <AlertCircle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                        Workspace Administrator Required
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-6">
+                        Only Workspace Administrators or Global Administrators can edit workspaces.
+                    </p>
+                    <div className="text-xs text-gray-500 space-y-1">
+                        <p>Your workspace role: {workspace?.userWorkspaceRole || 'None'}</p>
+                        <p>Your global role: {userRole || 'Guest'}</p>
                     </div>
                 </div>
-
-                <Input
-                    label="Workspace Name"
-                    type="text"
-                    placeholder="e.g., Marketing Team, Design Studio"
-                    required
-                    value={formData.name}
-                    onChange={(e) =>
-                        setFormData({ ...formData, name: e.target.value })
-                    }
-                />
-
-                {updateWorkspaceMutation.isError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                        Failed to update workspace. Please try again.
+            ) : (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="flex items-center justify-center mb-4">
+                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                            <Building2 className="w-8 h-8 text-blue-600" />
+                        </div>
                     </div>
-                )}
 
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-                    <Button type="button" variant="secondary" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button
-                        type="submit"
-                        variant="primary"
-                        isLoading={updateWorkspaceMutation.isPending}
-                    >
-                        Save Changes
-                    </Button>
-                </div>
-            </form>
+                    <Input
+                        label="Workspace Name"
+                        type="text"
+                        placeholder="e.g., Marketing Team, Design Studio"
+                        required
+                        value={formData.name}
+                        onChange={(e) =>
+                            setFormData({ ...formData, name: e.target.value })
+                        }
+                    />
+
+                    {updateWorkspaceMutation.isError && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                            Failed to update workspace. Please try again.
+                        </div>
+                    )}
+
+                    <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                        <Button type="button" variant="secondary" onClick={onClose}>
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            isLoading={updateWorkspaceMutation.isPending}
+                        >
+                            Save Changes
+                        </Button>
+                    </div>
+                </form>
+            )}
         </Modal>
     );
 };
