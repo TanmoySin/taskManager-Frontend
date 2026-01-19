@@ -202,7 +202,7 @@ const CreateProjectModal: FC<CreateProjectModalProps> = ({ isOpen, onClose }) =>
                 {/* Workspace */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Workspace
+                        Workspace <span className="text-red-500">*</span>
                     </label>
                     <select
                         required
@@ -211,12 +211,21 @@ const CreateProjectModal: FC<CreateProjectModalProps> = ({ isOpen, onClose }) =>
                         className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                         <option value="">Select workspace</option>
-                        {workspaces?.map((workspace: any) => (
-                            <option key={workspace._id} value={workspace._id}>
-                                {workspace.name}
-                            </option>
-                        ))}
+                        {workspaces?.map((workspace: any) => {
+                            // ✅ Show workspace role if available
+                            const roleInfo = workspace.userWorkspaceRole
+                                ? ` (${workspace.userWorkspaceRole})`
+                                : '';
+                            return (
+                                <option key={workspace._id} value={workspace._id}>
+                                    {workspace.name}{roleInfo}
+                                </option>
+                            );
+                        })}
                     </select>
+                    <p className="mt-1.5 text-xs text-gray-500">
+                        You can only create projects in workspaces where you're an Administrator or Manager
+                    </p>
                 </div>
 
                 {/* Dates */}

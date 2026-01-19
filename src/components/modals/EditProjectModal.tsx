@@ -50,13 +50,22 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, projectI
     }, [initialData]);
 
     const updateProjectMutation = useMutation({
-        mutationFn: (data: any) => api.patch(`/projects/${projectId}`, data),
+        mutationFn: (data: any) => {
+            if (!initialData?.canManage) {
+                throw new Error("You don't have permission to edit this project");
+            }
+            return api.patch(`/projects/${projectId}`, data);
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             queryClient.invalidateQueries({ queryKey: ['projects'] });
             onClose();
         },
+        onError: (error: any) => {
+            alert('Failed to update: ' + (error.response?.data?.error || error.message));
+        },
     });
+
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

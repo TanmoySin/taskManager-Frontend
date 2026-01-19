@@ -1,14 +1,15 @@
-import { type FC, useEffect, useState } from 'react';
+import { type FC, useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api, { uploadApi } from '../../lib/api';
+import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import {
     Calendar, User, Clock, Paperclip, MessageSquare,
-    CheckSquare, Plus, Send, Upload, Download, UserPlus, Trash2
+    CheckSquare, Plus, Send, Download, UserPlus, Trash2, FileText
 } from 'lucide-react';
+import { useAppSelector } from '../../store/hooks';
 
 interface TaskDetailModalProps {
     isOpen: boolean;
@@ -18,19 +19,22 @@ interface TaskDetailModalProps {
 
 const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) => {
     const queryClient = useQueryClient();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const user = useAppSelector((state) => state.auth.user);
+    const userRole = user?.role || 'Employee';
+    const currentUserId = user?.id;
+
     const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'time'>('details');
     const [newComment, setNewComment] = useState('');
     const [newSubtask, setNewSubtask] = useState('');
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [timeFormData, setTimeFormData] = useState({
         hours: '',
         date: new Date().toISOString().split('T')[0],
         description: '',
-        billable: true,
+        isBillable: true,
     });
 
-    // Fetch task details
     const { data: task, isLoading } = useQuery({
         queryKey: ['task', taskId],
         queryFn: async () => {
@@ -40,7 +44,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         enabled: !!taskId && isOpen,
     });
 
-    // ✅ Fetch time entries for this task
     const { data: timeEntries, isLoading: timeLoading } = useQuery({
         queryKey: ['taskTimeEntries', taskId],
         queryFn: async () => {
@@ -52,7 +55,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         enabled: !!taskId && isOpen && activeTab === 'time',
     });
 
-    // ✅ Fetch project members for assignee dropdown
     const { data: projectMembers, isLoading: membersLoading } = useQuery({
         queryKey: ['projectMembers', task?.projectId?._id],
         queryFn: async () => {
@@ -60,7 +62,18 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
             const response = await api.get(`/projects/${task.projectId._id}/members`);
             return response.data;
         },
-        enabled: !!task?.projectId?._id,
+        enabled: !!task?.projectId?._id && isEditing,
+    });
+
+    const { data: comments, isLoading: commentsLoading } = useQuery({
+        queryKey: ['taskComments', taskId],
+        queryFn: async () => {
+            const response = await api.get('/comments', {
+                params: { taskId }
+            });
+            return response.data;
+        },
+        enabled: !!taskId && isOpen,
     });
 
     const [editData, setEditData] = useState({
@@ -72,58 +85,130 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         assigneeId: '',
     });
 
-    // Update edit data when task loads
     useEffect(() => {
         if (task) {
             setEditData({
-                title: task.title,
+                title: task.title || '',
                 description: task.description || '',
-                priority: task.priority,
-                status: task.status,
+                priority: task.priority || 'MEDIUM',
+                status: task.status || 'TODO',
                 dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
                 assigneeId: task.assigneeId?._id || '',
             });
         }
     }, [task]);
 
-    // Update task mutation
+    const canEditTask = () => {
+        if (!task || !currentUserId) {
+            return false;
+        }
+
+        if (userRole === 'Administrator') {
+            return true;
+        }
+
+        if (userRole === 'Manager') {
+            return true;
+        }
+
+        const projectOwnerId = task.projectId?.ownerId?._id || task.projectId?.ownerId;
+        if (projectOwnerId === currentUserId) {
+            return true;
+        }
+
+        const taskCreatorId = task.createdBy?._id || task.createdBy;
+        if (taskCreatorId === currentUserId) {
+            return true;
+        }
+
+        const taskAssigneeId = task.assigneeId?._id || task.assigneeId;
+        if (taskAssigneeId === currentUserId) {
+            return true;
+        }
+
+        return false;
+    };
+
+    const canDeleteComment = (comment: any) => {
+        if (!comment || !currentUserId) return false;
+
+        // Admin can delete any comment
+        if (userRole === 'Administrator') return true;
+
+        // Manager can delete any comment in their projects
+        if (userRole === 'Manager') return true;
+
+        // Users can delete their own comments
+        const commentAuthorId = comment.authorId?._id || comment.authorId;
+        return commentAuthorId === currentUserId;
+    };
+
+    const canDeleteAttachment = (uploadedById: string) => {
+        if (userRole === 'Administrator') return true;
+        if (userRole === 'Manager') return true;
+        return uploadedById === currentUserId;
+    };
+
+    const canDeleteTimeEntry = (entry: any) => {
+        if (entry.status === 'APPROVED') return false;
+        if (userRole === 'Administrator') return true;
+        return entry.userId?._id === currentUserId || entry.userId === currentUserId;
+    };
+
+    const getFilteredMembers = () => {
+        if (!projectMembers) return [];
+        if (userRole === 'Administrator') return projectMembers;
+
+        return projectMembers.filter((member: any) => {
+            if (userRole === 'Manager') {
+                return member.role !== 'Administrator';
+            }
+            return member.role === 'Employee' || member._id === currentUserId;
+        });
+    };
+
     const updateTaskMutation = useMutation({
-        mutationFn: (data: any) => {
-            console.log('🔄 Updating task with:', data);
-            return api.patch(`/tasks/${taskId}`, data);
-        },
-        onSuccess: (data) => {
-            console.log('✅ Task updated successfully:', data);
+        mutationFn: (data: any) => api.patch(`/tasks/${taskId}`, data),
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
             queryClient.invalidateQueries({ queryKey: ['myTasks'] });
             queryClient.invalidateQueries({ queryKey: ['projectTasks'] });
+            queryClient.invalidateQueries({ queryKey: ['tasks'] });
             setIsEditing(false);
         },
         onError: (error: any) => {
-            console.error('❌ Update task error:', error.response?.data || error.message);
-            alert('Failed to update task: ' + (error.response?.data?.error || error.message));
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to update task';
+            alert(errorMsg);
         },
     });
 
-    // Add comment mutation
     const addCommentMutation = useMutation({
-        mutationFn: (content: string) => api.post(`/tasks/${taskId}/comments`, { content }),
+        mutationFn: (body: string) => api.post('/comments', {
+            taskId,
+            body,
+            mentions: []
+        }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+            queryClient.invalidateQueries({ queryKey: ['taskComments', taskId] });
             setNewComment('');
         },
-    });
-
-    // ✅ Delete comment mutation
-    const deleteCommentMutation = useMutation({
-        mutationFn: (commentIndex: number) =>
-            api.delete(`/tasks/${taskId}/comments/${commentIndex}`),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to add comment');
         },
     });
 
-    // ✅ Log time mutation
+    const deleteCommentMutation = useMutation({
+        mutationFn: (commentId: string) =>
+            api.delete(`/comments/${commentId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['taskComments', taskId] });
+        },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to delete comment');
+        },
+    });
+
+
     const logTimeMutation = useMutation({
         mutationFn: (data: any) => api.post('/time-tracking/entries', { ...data, taskId }),
         onSuccess: () => {
@@ -133,75 +218,96 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                 hours: '',
                 date: new Date().toISOString().split('T')[0],
                 description: '',
-                billable: true,
+                isBillable: true,
             });
         },
         onError: (error: any) => {
-            alert('Failed to log time: ' + (error.response?.data?.error || error.message));
+            alert(error.response?.data?.error || 'Failed to log time');
         },
     });
 
-    // ✅ Delete time entry mutation
     const deleteTimeMutation = useMutation({
         mutationFn: (id: string) => api.delete(`/time-tracking/entries/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['taskTimeEntries', taskId] });
             queryClient.invalidateQueries({ queryKey: ['timeEntries'] });
         },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to delete time entry');
+        },
     });
 
-    // Add subtask mutation
     const addSubtaskMutation = useMutation({
         mutationFn: (title: string) => api.post(`/tasks/${taskId}/subtasks`, { title }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
             setNewSubtask('');
         },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to add subtask');
+        },
     });
 
-    // Toggle subtask mutation
     const toggleSubtaskMutation = useMutation({
-        mutationFn: (subtaskIndex: number) =>
-            api.patch(`/tasks/${taskId}/subtasks/${subtaskIndex}/toggle`),
+        mutationFn: (subtaskId: string) =>
+            api.patch(`/tasks/${taskId}/subtasks/${subtaskId}/toggle`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
         },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to toggle subtask');
+        },
     });
 
-    // ✅ Delete subtask mutation
     const deleteSubtaskMutation = useMutation({
-        mutationFn: (subtaskIndex: number) =>
-            api.delete(`/tasks/${taskId}/subtasks/${subtaskIndex}`),
+        mutationFn: (subtaskId: string) =>
+            api.delete(`/tasks/${taskId}/subtasks/${subtaskId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
         },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to delete subtask');
+        },
     });
 
-    // Upload attachment mutation
     const uploadAttachmentMutation = useMutation({
-        mutationFn: async (file: File) => {
+        mutationFn: (file: File) => {
             const formData = new FormData();
             formData.append('file', file);
-            const response = await uploadApi.post(`/tasks/${taskId}/attachments`, formData);
-            return response.data;
+            return api.post(`/tasks/${taskId}/attachments`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
-            setSelectedFile(null);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to upload file');
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         },
     });
 
-    // ✅ Delete attachment mutation
     const deleteAttachmentMutation = useMutation({
-        mutationFn: (attachmentIndex: number) =>
-            api.delete(`/tasks/${taskId}/attachments/${attachmentIndex}`),
+        mutationFn: (attachmentId: string) =>
+            api.delete(`/tasks/${taskId}/attachments/${attachmentId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+        },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to delete attachment');
         },
     });
 
     const handleSaveEdit = () => {
-        console.log('💾 Saving task edits:', editData);
+        if (!editData.title.trim()) {
+            alert('Task title is required');
+            return;
+        }
         updateTaskMutation.mutate(editData);
     };
 
@@ -219,59 +325,124 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         }
     };
 
-    const handleFileUpload = () => {
-        if (selectedFile) {
-            uploadAttachmentMutation.mutate(selectedFile);
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (file.size > 10 * 1024 * 1024) {
+                alert('File size must be less than 10MB');
+                e.target.value = '';
+                return;
+            }
+            uploadAttachmentMutation.mutate(file);
         }
     };
 
     const handleLogTime = (e: React.FormEvent) => {
         e.preventDefault();
-        if (timeFormData.hours && parseFloat(timeFormData.hours) > 0) {
-            logTimeMutation.mutate({
-                hours: parseFloat(timeFormData.hours),
-                date: timeFormData.date,
-                description: timeFormData.description,
-                billable: timeFormData.billable,
-            });
+        const hours = parseFloat(timeFormData.hours);
+
+        if (!hours || hours <= 0) {
+            alert('Please enter valid hours');
+            return;
         }
+
+        if (hours > 24) {
+            alert('Hours cannot exceed 24');
+            return;
+        }
+
+        logTimeMutation.mutate({
+            hours,
+            date: timeFormData.date,
+            description: timeFormData.description,
+            isBillable: timeFormData.isBillable,
+        });
     };
 
     const getPriorityColor = (priority: string) => {
-        const colors: any = { URGENT: 'danger', HIGH: 'warning', MEDIUM: 'info', LOW: 'default' };
+        const colors: any = {
+            URGENT: 'danger',
+            HIGH: 'warning',
+            MEDIUM: 'info',
+            LOW: 'default'
+        };
         return colors[priority] || 'default';
     };
 
     const getStatusColor = (status: string) => {
-        const colors: any = { DONE: 'success', IN_PROGRESS: 'info', REVIEW: 'warning', TODO: 'default' };
+        const colors: any = {
+            DONE: 'success',
+            IN_PROGRESS: 'info',
+            REVIEW: 'warning',
+            TODO: 'default'
+        };
         return colors[status] || 'default';
+    };
+
+    const formatDate = (date: string | Date) => {
+        if (!date) return 'N/A';
+        return new Date(date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
+
+    const formatDateTime = (date: string | Date) => {
+        if (!date) return 'N/A';
+        return new Date(date).toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     };
 
     if (isLoading) {
         return (
             <Modal isOpen={isOpen} onClose={onClose} title="Task Details" size="xl">
-                <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-sm text-gray-500">Loading task details...</p>
+                    </div>
                 </div>
             </Modal>
         );
     }
 
+    if (!task) {
+        return (
+            <Modal isOpen={isOpen} onClose={onClose} title="Task Not Found" size="xl">
+                <div className="text-center py-12">
+                    <p className="text-gray-500">Task not found or you don't have permission to view it.</p>
+                    <Button variant="secondary" className="mt-4" onClick={onClose}>Close</Button>
+                </div>
+            </Modal>
+        );
+    }
+
+    const canEdit = canEditTask();
+    const filteredMembers = getFilteredMembers();
+
+    console.log("filteredMembers", filteredMembers);
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Task' : 'Task Details'} size="xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Task' : "Task Details"} size="xl">
             <div className="grid grid-cols-3 gap-6">
-                {/* Left Column - Main Content */}
                 <div className="col-span-2 space-y-6">
-                    {/* Title & Description */}
                     <div>
                         {isEditing ? (
                             <Input
                                 value={editData.title}
                                 onChange={(e) => setEditData({ ...editData, title: e.target.value })}
                                 className="text-lg font-semibold mb-3"
+                                placeholder="Task title"
+                                disabled={updateTaskMutation.isPending}
                             />
                         ) : (
-                            <h2 className="text-xl font-bold text-gray-900 mb-3">{task?.title}</h2>
+                            <h2 className="text-xl font-bold text-gray-900 mb-3">{task.title}</h2>
                         )}
 
                         {isEditing ? (
@@ -281,145 +452,197 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                 rows={4}
                                 className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                                 placeholder="Add description..."
+                                disabled={updateTaskMutation.isPending}
                             />
                         ) : (
-                            <p className="text-sm text-gray-600">{task?.description || 'No description'}</p>
+                            <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                                {task.description || 'No description provided'}
+                            </p>
                         )}
                     </div>
 
-                    {/* Tabs */}
                     <div className="border-b border-gray-200">
                         <div className="flex space-x-6">
-                            {['details', 'comments', 'time'].map((tab) => (
+                            {[
+                                { key: 'details', label: 'Details', icon: CheckSquare },
+                                { key: 'comments', label: `Comments (${comments?.length || 0})`, icon: MessageSquare },
+                                { key: 'time', label: `Time (${timeEntries?.length || 0})`, icon: Clock }
+                            ].map(({ key, label, icon: Icon }) => (
                                 <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab as any)}
-                                    className={`pb-3 text-sm font-medium capitalize ${activeTab === tab
+                                    key={key}
+                                    onClick={() => setActiveTab(key as any)}
+                                    className={`pb-3 text-sm font-medium flex items-center space-x-2 ${activeTab === key
                                         ? 'border-b-2 border-blue-600 text-blue-600'
                                         : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
-                                    {tab}
+                                    <Icon className="w-4 h-4" />
+                                    <span>{label}</span>
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Tab Content */}
                     {activeTab === 'details' && (
-                        <div className="space-y-4">
-                            {/* Subtasks */}
+                        <div className="space-y-6">
                             <div>
-                                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
-                                    <CheckSquare className="w-4 h-4 mr-2" />
-                                    Subtasks ({task?.subtasks?.filter((s: any) => s.isCompleted).length || 0}/{task?.subtasks?.length || 0})
-                                </h3>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center">
+                                        <CheckSquare className="w-4 h-4 mr-2" />
+                                        Subtasks
+                                    </h3>
+                                    {task.subtasks && task.subtasks.length > 0 && (
+                                        <span className="text-xs text-gray-500">
+                                            {task.subtasks.filter((s: any) => s.isCompleted).length} of {task.subtasks.length} completed
+                                        </span>
+                                    )}
+                                </div>
+
+                                {task.subtasks && task.subtasks.length > 0 && (
+                                    <div className="mb-3">
+                                        <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+                                            <div
+                                                className="bg-blue-600 h-2 rounded-full transition-all"
+                                                style={{
+                                                    width: `${(task.subtasks.filter((s: any) => s.isCompleted).length / task.subtasks.length) * 100}%`
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="space-y-2 mb-3">
-                                    {task?.subtasks?.map((subtask: any, index: number) => (
-                                        <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg group">
-                                            <input
-                                                type="checkbox"
-                                                checked={subtask.isCompleted}
-                                                onChange={() => toggleSubtaskMutation.mutate(index)}
-                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                                            />
-                                            <span className={`text-sm flex-1 ${subtask.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                                                {subtask.title}
-                                            </span>
-                                            {/* ✅ Delete button - only in edit mode */}
-                                            {isEditing && (
-                                                <button
-                                                    onClick={() => {
-                                                        if (confirm(`Delete subtask "${subtask.title}"?`)) {
-                                                            deleteSubtaskMutation.mutate(index);
-                                                        }
-                                                    }}
-                                                    className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                    title="Delete subtask"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            )}
+                                    {task?.subtasks?.length > 0 ? (
+                                        task.subtasks.map((subtask: any) => (
+                                            <div key={subtask._id} className="flex items-center space-x-3 p-2.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors group">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={subtask.isCompleted}
+                                                    onChange={() => toggleSubtaskMutation.mutate(subtask._id)}
+                                                    disabled={toggleSubtaskMutation.isPending}
+                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                                                />
+                                                <span className={`text-sm flex-1 ${subtask.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                                    {subtask.title}
+                                                </span>
+                                                {canEdit && (
+                                                    <button
+                                                        onClick={() => {
+                                                            if (confirm(`Delete subtask "${subtask.title}"?`)) {
+                                                                deleteSubtaskMutation.mutate(subtask._id);
+                                                            }
+                                                        }}
+                                                        disabled={deleteSubtaskMutation.isPending}
+                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                                        title="Delete subtask"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-6 text-gray-400 bg-gray-50 rounded-lg">
+                                            <CheckSquare className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                                            <p className="text-sm">No subtasks yet</p>
+                                            <p className="text-xs text-gray-500 mt-1">Add subtasks to break down this task</p>
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
+
 
                                 <form onSubmit={handleAddSubtask} className="flex space-x-2">
                                     <Input
                                         type="text"
-                                        placeholder="Add subtask..."
+                                        placeholder="Add a new subtask..."
                                         value={newSubtask}
                                         onChange={(e) => setNewSubtask(e.target.value)}
                                         className="flex-1"
+                                        disabled={addSubtaskMutation.isPending}
                                     />
-                                    <Button type="submit" variant="secondary" size="sm">
+                                    <Button
+                                        type="submit"
+                                        variant="secondary"
+                                        size="sm"
+                                        disabled={!newSubtask.trim() || addSubtaskMutation.isPending}
+                                        isLoading={addSubtaskMutation.isPending}
+                                    >
                                         <Plus className="w-4 h-4" />
                                     </Button>
                                 </form>
                             </div>
 
-                            {/* Attachments */}
                             <div>
                                 <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
                                     <Paperclip className="w-4 h-4 mr-2" />
-                                    Attachments ({task?.attachments?.length || 0})
+                                    Attachments ({task.attachments?.length || 0})
                                 </h3>
 
                                 <div className="space-y-2 mb-3">
-                                    {task?.attachments?.map((attachment: any, index: number) => (
-                                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                            <div className="flex items-center space-x-3 flex-1">
-                                                <Paperclip className="w-4 h-4 text-gray-400" />
-                                                <span className="text-sm text-gray-700 truncate">{attachment.filename}</span>
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                {/* Download button - always visible */}
-                                                <a
-                                                    href={attachment.url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                    title="Download"
-                                                >
-                                                    <Download className="w-4 h-4" />
-                                                </a>
-                                                {/* ✅ Delete button - only in edit mode */}
-                                                {isEditing && (
-                                                    <button
-                                                        onClick={() => {
-                                                            if (confirm(`Delete attachment "${attachment.filename}"?`)) {
-                                                                deleteAttachmentMutation.mutate(index);
-                                                            }
-                                                        }}
-                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                        title="Delete attachment"
-                                                        disabled={deleteAttachmentMutation.isPending}
+                                    {task?.attachments?.length > 0 ? (
+                                        task.attachments.map((attachment: any) => (
+                                            <div key={attachment._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors group">
+                                                <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                                    <FileText className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-gray-900 truncate">
+                                                            {attachment.filename}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500">
+                                                            {formatDateTime(attachment.uploadedAt)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center space-x-2 flex-shrink-0">
+                                                    <a
+                                                        href={attachment.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                        title="Download"
                                                     >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                )}
+                                                        <Download className="w-4 h-4" />
+                                                    </a>
+                                                    {canDeleteAttachment(attachment.uploadedBy?._id || attachment.uploadedBy) && (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (confirm(`Delete "${attachment.filename}"?`)) {
+                                                                    deleteAttachmentMutation.mutate(attachment._id);
+                                                                }
+                                                            }}
+                                                            disabled={deleteAttachmentMutation.isPending}
+                                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                            title="Delete attachment"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-6 text-gray-400">
+                                            <Paperclip className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                                            <p className="text-sm">No attachments yet</p>
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
 
-                                <div className="flex space-x-2">
+
+                                <div className="relative">
                                     <input
+                                        ref={fileInputRef}
                                         type="file"
-                                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                                        className="flex-1 text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                        onChange={handleFileSelect}
+                                        disabled={uploadAttachmentMutation.isPending}
+                                        className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:cursor-pointer disabled:opacity-50"
                                     />
-                                    <Button
-                                        type="button"
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={handleFileUpload}
-                                        disabled={!selectedFile}
-                                        isLoading={uploadAttachmentMutation.isPending}
-                                    >
-                                        <Upload className="w-4 h-4" />
-                                    </Button>
+                                    {uploadAttachmentMutation.isPending && (
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center text-sm text-blue-600">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                                            Uploading...
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -428,72 +651,96 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                     {activeTab === 'comments' && (
                         <div className="space-y-4">
                             <div className="max-h-96 overflow-y-auto space-y-3">
-                                {task?.comments?.length > 0 ? (
-                                    task.comments.map((comment: any, index: number) => (
-                                        <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div className="flex items-center space-x-2">
-                                                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                                                        <span className="text-xs font-medium text-blue-600">
-                                                            {comment.createdBy?.name?.charAt(0).toUpperCase()}
+                                {commentsLoading ? (
+                                    <div className="text-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                                        <p className="text-sm text-gray-500">Loading comments...</p>
+                                    </div>
+                                ) : comments && comments.length > 0 ? (
+                                    comments.map((comment: any) => (
+                                        <div key={comment._id} className="p-3 bg-gray-50 rounded-lg group">
+                                            <div className="flex items-start justify-between mb-2">
+                                                <div className="flex items-center space-x-2 flex-1">
+                                                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                                        <span className="text-sm font-medium text-blue-600">
+                                                            {comment.authorId?.name?.charAt(0).toUpperCase() || '?'}
                                                         </span>
                                                     </div>
-                                                    <span className="text-sm font-medium text-gray-900">{comment.createdBy?.name}</span>
-                                                    <span className="text-xs text-gray-500">
-                                                        {new Date(comment.createdAt).toLocaleString()}
-                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center space-x-2">
+                                                            <span className="text-sm font-medium text-gray-900">
+                                                                {comment.authorId?.name || 'Unknown'}
+                                                            </span>
+                                                            <span className="text-xs text-gray-500">
+                                                                {formatDateTime(comment.createdAt)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                {/* ✅ Delete button - only in edit mode */}
-                                                {isEditing && (
+                                                {canDeleteComment(comment) && (
                                                     <button
                                                         onClick={() => {
                                                             if (confirm('Delete this comment?')) {
-                                                                deleteCommentMutation.mutate(index);
+                                                                deleteCommentMutation.mutate(comment._id);
                                                             }
                                                         }}
-                                                        className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                        disabled={deleteCommentMutation.isPending}
+                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
                                                         title="Delete comment"
                                                     >
                                                         <Trash2 className="w-3.5 h-3.5" />
                                                     </button>
                                                 )}
                                             </div>
-                                            <p className="text-sm text-gray-700">{comment.content}</p>
+                                            <p className="text-sm text-gray-700 whitespace-pre-wrap ml-10">
+                                                {comment.body}
+                                            </p>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="text-center py-8 text-gray-500">
+                                    <div className="text-center py-12 text-gray-400">
                                         <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                                         <p className="text-sm">No comments yet</p>
+                                        <p className="text-xs mt-1">Be the first to comment</p>
                                     </div>
                                 )}
                             </div>
 
-                            <form onSubmit={handleAddComment} className="flex space-x-2">
+                            <form onSubmit={handleAddComment} className="flex space-x-2 pt-3 border-t border-gray-200">
                                 <Input
                                     type="text"
                                     placeholder="Add a comment..."
                                     value={newComment}
                                     onChange={(e) => setNewComment(e.target.value)}
                                     className="flex-1"
+                                    disabled={addCommentMutation.isPending}
                                 />
-                                <Button type="submit" variant="primary" size="sm" isLoading={addCommentMutation.isPending}>
+                                <Button
+                                    type="submit"
+                                    variant="primary"
+                                    size="sm"
+                                    disabled={!newComment.trim() || addCommentMutation.isPending}
+                                    isLoading={addCommentMutation.isPending}
+                                >
                                     <Send className="w-4 h-4" />
                                 </Button>
                             </form>
                         </div>
                     )}
 
+
                     {activeTab === 'time' && (
                         <div className="space-y-4">
-                            {/* Log Time Form */}
-                            <div className="bg-blue-50 p-4 rounded-lg">
-                                <h4 className="text-sm font-semibold text-gray-900 mb-3">Log Time</h4>
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
+                                    <Clock className="w-4 h-4 mr-2" />
+                                    Log Time
+                                </h4>
                                 <form onSubmit={handleLogTime} className="space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Hours *
+                                                Hours <span className="text-red-500">*</span>
                                             </label>
                                             <Input
                                                 type="number"
@@ -501,56 +748,60 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                                 min="0.25"
                                                 max="24"
                                                 required
-                                                placeholder="e.g., 2.5"
+                                                placeholder="2.5"
                                                 value={timeFormData.hours}
                                                 onChange={(e) => setTimeFormData({ ...timeFormData, hours: e.target.value })}
+                                                disabled={logTimeMutation.isPending}
                                             />
                                         </div>
                                         <div>
                                             <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Date *
+                                                Date <span className="text-red-500">*</span>
                                             </label>
                                             <Input
                                                 type="date"
                                                 required
+                                                max={new Date().toISOString().split('T')[0]}
                                                 value={timeFormData.date}
                                                 onChange={(e) => setTimeFormData({ ...timeFormData, date: e.target.value })}
+                                                disabled={logTimeMutation.isPending}
                                             />
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                            Description
-                                        </label>
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
                                         <textarea
                                             rows={2}
                                             placeholder="What did you work on?"
                                             value={timeFormData.description}
                                             onChange={(e) => setTimeFormData({ ...timeFormData, description: e.target.value })}
-                                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                                            disabled={logTimeMutation.isPending}
+                                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none disabled:bg-gray-100"
                                         />
                                     </div>
 
                                     <div className="flex items-center space-x-4">
                                         <label className="text-xs font-medium text-gray-700">Billable:</label>
-                                        <label className="flex items-center">
+                                        <label className="flex items-center cursor-pointer">
                                             <input
                                                 type="radio"
-                                                checked={timeFormData.billable === true}
-                                                onChange={() => setTimeFormData({ ...timeFormData, billable: true })}
-                                                className="w-3 h-3 text-blue-600"
+                                                checked={timeFormData.isBillable === true}
+                                                onChange={() => setTimeFormData({ ...timeFormData, isBillable: true })}
+                                                disabled={logTimeMutation.isPending}
+                                                className="w-3.5 h-3.5 text-blue-600"
                                             />
-                                            <span className="ml-1.5 text-xs">Yes</span>
+                                            <span className="ml-2 text-sm">Yes</span>
                                         </label>
-                                        <label className="flex items-center">
+                                        <label className="flex items-center cursor-pointer">
                                             <input
                                                 type="radio"
-                                                checked={timeFormData.billable === false}
-                                                onChange={() => setTimeFormData({ ...timeFormData, billable: false })}
-                                                className="w-3 h-3 text-blue-600"
+                                                checked={timeFormData.isBillable === false}
+                                                onChange={() => setTimeFormData({ ...timeFormData, isBillable: false })}
+                                                disabled={logTimeMutation.isPending}
+                                                className="w-3.5 h-3.5 text-blue-600"
                                             />
-                                            <span className="ml-1.5 text-xs">No</span>
+                                            <span className="ml-2 text-sm">No</span>
                                         </label>
                                     </div>
 
@@ -561,36 +812,36 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                         className="w-full"
                                         isLoading={logTimeMutation.isPending}
                                     >
-                                        <Clock className="w-3 h-3 mr-2" />
-                                        Log Time
+                                        <Clock className="w-3.5 h-3.5 mr-2" />
+                                        Log Time Entry
                                     </Button>
                                 </form>
                             </div>
 
-                            {/* Time Entries List */}
                             <div>
                                 <h4 className="text-sm font-semibold text-gray-900 mb-3">
-                                    Time Entries ({timeEntries?.length || 0})
+                                    Time Entries
                                 </h4>
 
                                 {timeLoading ? (
-                                    <div className="text-center py-8">
-                                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                                    <div className="text-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                                        <p className="text-sm text-gray-500">Loading time entries...</p>
                                     </div>
                                 ) : timeEntries && timeEntries.length > 0 ? (
-                                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                                    <div className="space-y-2 max-h-80 overflow-y-auto">
                                         {timeEntries.map((entry: any) => (
-                                            <div key={entry._id} className="p-3 bg-gray-50 rounded-lg">
+                                            <div key={entry._id} className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                                                 <div className="flex items-start justify-between">
                                                     <div className="flex-1">
-                                                        <div className="flex items-center space-x-2 mb-1">
-                                                            <span className="text-sm font-semibold text-blue-600">
+                                                        <div className="flex items-center flex-wrap gap-2 mb-1">
+                                                            <span className="text-sm font-bold text-blue-600">
                                                                 {entry.hours}h
                                                             </span>
                                                             <span className="text-xs text-gray-500">
-                                                                {new Date(entry.date).toLocaleDateString()}
+                                                                {formatDate(entry.date)}
                                                             </span>
-                                                            {entry.billable && (
+                                                            {entry.isBillable && (
                                                                 <Badge variant="success" size="sm">Billable</Badge>
                                                             )}
                                                             <Badge
@@ -604,22 +855,21 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                                             </Badge>
                                                         </div>
                                                         {entry.description && (
-                                                            <p className="text-xs text-gray-600 mt-1">
-                                                                {entry.description}
-                                                            </p>
+                                                            <p className="text-xs text-gray-600 mb-1">{entry.description}</p>
                                                         )}
-                                                        <p className="text-xs text-gray-500 mt-1">
-                                                            Logged by {entry.userId?.name}
+                                                        <p className="text-xs text-gray-500">
+                                                            Logged by {entry.userId?.name || 'Unknown'}
                                                         </p>
                                                     </div>
-                                                    {entry.status !== 'APPROVED' && (
+                                                    {canDeleteTimeEntry(entry) && (
                                                         <button
                                                             onClick={() => {
                                                                 if (confirm('Delete this time entry?')) {
                                                                     deleteTimeMutation.mutate(entry._id);
                                                                 }
                                                             }}
-                                                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                            disabled={deleteTimeMutation.isPending}
+                                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-2"
                                                             title="Delete time entry"
                                                         >
                                                             <Trash2 className="w-3.5 h-3.5" />
@@ -630,7 +880,7 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-center py-8 text-gray-500">
+                                    <div className="text-center py-12 text-gray-400">
                                         <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                                         <p className="text-sm">No time entries yet</p>
                                         <p className="text-xs mt-1">Log your first entry above</p>
@@ -638,47 +888,22 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                 )}
                             </div>
 
-                            {/* Time Summary */}
-                            {timeEntries && timeEntries.length > 0 && (
-                                <div className="bg-gray-50 p-4 rounded-lg">
-                                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Summary</h4>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold text-blue-600">
-                                                {timeEntries.reduce((sum: number, e: any) => sum + e.hours, 0).toFixed(1)}h
-                                            </p>
-                                            <p className="text-xs text-gray-500 mt-1">Total Hours</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold text-green-600">
-                                                {timeEntries.filter((e: any) => e.billable).reduce((sum: number, e: any) => sum + e.hours, 0).toFixed(1)}h
-                                            </p>
-                                            <p className="text-xs text-gray-500 mt-1">Billable</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-bold text-purple-600">
-                                                {timeEntries.filter((e: any) => e.status === 'APPROVED').reduce((sum: number, e: any) => sum + e.hours, 0).toFixed(1)}h
-                                            </p>
-                                            <p className="text-xs text-gray-500 mt-1">Approved</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     )}
-
                 </div>
 
-                {/* Right Column - Metadata */}
                 <div className="space-y-4">
                     {isEditing ? (
                         <>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                    Status <span className="text-red-500">*</span>
+                                </label>
                                 <select
                                     value={editData.status}
                                     onChange={(e) => setEditData({ ...editData, status: e.target.value })}
-                                    className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={updateTaskMutation.isPending}
+                                    className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 >
                                     <option value="TODO">To Do</option>
                                     <option value="IN_PROGRESS">In Progress</option>
@@ -688,11 +913,14 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                    Priority <span className="text-red-500">*</span>
+                                </label>
                                 <select
                                     value={editData.priority}
                                     onChange={(e) => setEditData({ ...editData, priority: e.target.value })}
-                                    className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={updateTaskMutation.isPending}
+                                    className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 >
                                     <option value="LOW">Low</option>
                                     <option value="MEDIUM">Medium</option>
@@ -708,86 +936,115 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                 </label>
                                 <select
                                     value={editData.assigneeId}
-                                    onChange={(e) => {
-                                        console.log('👤 Assignee changed to:', e.target.value);
-                                        setEditData({ ...editData, assigneeId: e.target.value });
-                                    }}
-                                    disabled={membersLoading}
+                                    onChange={(e) => setEditData({ ...editData, assigneeId: e.target.value })}
+                                    disabled={membersLoading || updateTaskMutation.isPending}
                                     className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                                 >
                                     <option value="">Unassigned</option>
-                                    {projectMembers?.map((member: any) => (
+                                    {filteredMembers.map((member: any) => (
                                         <option key={member._id} value={member._id}>
-                                            {member.name} ({member.role})
+                                            {member.name}
                                         </option>
                                     ))}
                                 </select>
-                                {membersLoading && (
-                                    <p className="text-xs text-gray-500 mt-1">Loading members...</p>
-                                )}
-                                {!membersLoading && projectMembers?.length === 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">No members in this project</p>
-                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                    {userRole === 'Employee' ? 'You can only assign to yourself or other employees' :
+                                        userRole === 'Manager' ? 'Managers cannot assign to administrators' :
+                                            'You can assign to anyone'}
+                                </p>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Due Date</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center">
+                                    <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                                    Due Date
+                                </label>
                                 <Input
                                     type="date"
                                     value={editData.dueDate}
                                     onChange={(e) => setEditData({ ...editData, dueDate: e.target.value })}
+                                    disabled={updateTaskMutation.isPending}
                                 />
                             </div>
                         </>
                     ) : (
                         <>
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">Status</label>
-                                <Badge variant={getStatusColor(task?.status)} size="md">
-                                    {task?.status?.replace('_', ' ')}
+                                <label className="text-xs text-gray-500 block mb-1.5">Status</label>
+                                <Badge variant={getStatusColor(task.status)} size="md">
+                                    {task.status?.replace('_', ' ')}
                                 </Badge>
                             </div>
 
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">Priority</label>
-                                <Badge variant={getPriorityColor(task?.priority)} size="md">
-                                    {task?.priority}
+                                <label className="text-xs text-gray-500 block mb-1.5">Priority</label>
+                                <Badge variant={getPriorityColor(task.priority)} size="md">
+                                    {task.priority}
                                 </Badge>
                             </div>
 
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1 flex items-center">
+                                <label className="text-xs text-gray-500 block mb-1.5 flex items-center">
                                     <User className="w-3 h-3 mr-1" />
                                     Assignee
                                 </label>
-                                {task?.assigneeId ? (
+                                {task.assigneeId ? (
                                     <div className="flex items-center space-x-2">
-                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                                             <span className="text-sm font-medium text-blue-600">
                                                 {task.assigneeId.name?.charAt(0).toUpperCase()}
                                             </span>
                                         </div>
-                                        <span className="text-sm text-gray-700">{task.assigneeId.name}</span>
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-900">{task.assigneeId.name}</p>
+                                            <p className="text-xs text-gray-500">{task.assigneeId.email}</p>
+                                        </div>
                                     </div>
                                 ) : (
-                                    <span className="text-sm text-gray-500 italic">Unassigned</span>
+                                    <span className="text-sm text-gray-400 italic">Unassigned</span>
                                 )}
                             </div>
 
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1 flex items-center">
+                                <label className="text-xs text-gray-500 block mb-1.5 flex items-center">
                                     <Calendar className="w-3 h-3 mr-1" />
                                     Due Date
                                 </label>
                                 <span className="text-sm text-gray-700">
-                                    {task?.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No due date'}
+                                    {task.dueDate ? formatDate(task.dueDate) : 'No due date'}
                                 </span>
                             </div>
 
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">Project</label>
-                                <span className="text-sm text-gray-700">{task?.projectId?.name}</span>
+                                <label className="text-xs text-gray-500 block mb-1.5">Project</label>
+                                <span className="text-sm font-medium text-gray-900">
+                                    {task.projectId?.name || 'Unknown Project'}
+                                </span>
                             </div>
+
+                            <div className="pt-2 border-t border-gray-200">
+                                <label className="text-xs text-gray-500 block mb-1">Created</label>
+                                <p className="text-xs text-gray-600">
+                                    {formatDateTime(task.createdAt)}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    by {task.createdBy?.name || 'Unknown'}
+                                </p>
+                            </div>
+
+                            {task.updatedAt && task.updatedAt !== task.createdAt && (
+                                <div>
+                                    <label className="text-xs text-gray-500 block mb-1">Last Updated</label>
+                                    <p className="text-xs text-gray-600">
+                                        {formatDateTime(task.updatedAt)}
+                                    </p>
+                                    {task.updatedBy && (
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            by {task.updatedBy.name}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </>
                     )}
 
@@ -799,6 +1056,7 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                     className="w-full"
                                     onClick={handleSaveEdit}
                                     isLoading={updateTaskMutation.isPending}
+                                    disabled={!editData.title.trim()}
                                 >
                                     Save Changes
                                 </Button>
@@ -807,7 +1065,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                     className="w-full"
                                     onClick={() => {
                                         setIsEditing(false);
-                                        // Reset form to original values
                                         if (task) {
                                             setEditData({
                                                 title: task.title,
@@ -819,16 +1076,28 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                             });
                                         }
                                     }}
+                                    disabled={updateTaskMutation.isPending}
                                 >
                                     Cancel
                                 </Button>
                             </div>
                         ) : (
-                            <Button variant="secondary" className="w-full" onClick={() => setIsEditing(true)}>
-                                Edit Task
-                            </Button>
+                            canEdit ? (
+                                <Button
+                                    variant="secondary"
+                                    className="w-full"
+                                    onClick={() => setIsEditing(true)}
+                                >
+                                    Edit Task
+                                </Button>
+                            ) : (
+                                <div className="text-center py-2">
+                                    <p className="text-xs text-gray-500">You don't have permission to edit this task</p>
+                                </div>
+                            )
                         )}
                     </div>
+
                 </div>
             </div>
         </Modal>

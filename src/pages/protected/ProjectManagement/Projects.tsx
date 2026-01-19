@@ -5,12 +5,14 @@ import Card from '../../../components/ui/Card';
 import Button from '../../../components/ui/Button';
 import Badge from '../../../components/ui/Badge';
 import CreateProjectModal from '../../../components/modals/CreateProjectModal';
-import { Plus, FolderKanban, Users, Calendar, Filter, Star, Archive } from 'lucide-react';
+import { Plus, FolderKanban, Users, Calendar, Filter, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAppSelector } from '../../../store/hooks';
 
 export default function Projects() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const user = useAppSelector((state) => state.auth.user);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [archivedFilter, setArchivedFilter] = useState<boolean>(false);
     const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -24,8 +26,9 @@ export default function Projects() {
             if (statusFilter !== 'ALL') params.status = statusFilter;
             if (typeFilter !== 'ALL') params.type = typeFilter;
             if (search.trim()) params.search = search.trim();
-            params.archived = archivedFilter; // ✅ ADD THIS
-
+            if (archivedFilter) {
+                params.includeDeleted = 'true';
+            }
             const response = await api.get('/projects', { params });
             return response.data;
         },
@@ -43,7 +46,10 @@ export default function Projects() {
 
 
     const projects = data?.projects || [];
-    const totalCount = data?.count || 0;
+    const filteredProjects = archivedFilter
+        ? projects
+        : projects.filter((p: any) => !p.isDeleted);
+    const totalCount = filteredProjects.length;
 
     const getStatusBadgeVariant = (status: string) => {
         switch (status) {
@@ -87,10 +93,12 @@ export default function Projects() {
                         {totalCount} project{totalCount === 1 ? '' : 's'}
                     </p>
                 </div>
-                <Button variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Project
-                </Button>
+                {user && ['Administrator', 'Manager'].includes(user.role) && (
+                    <Button variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Project
+                    </Button>
+                )}
             </div>
 
             {/* Filters */}
@@ -116,7 +124,7 @@ export default function Projects() {
                             onChange={(e) => setArchivedFilter(e.target.checked)}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
-                        <span className="text-sm text-gray-700">Show Archived</span>
+                        <span className="text-sm text-gray-700">Show Deleted Projects</span>
                     </label>
 
                     <div className="flex items-center gap-2">
@@ -160,7 +168,7 @@ export default function Projects() {
                 </Card>
             ) : projects.length ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {projects.map((project: any) => (
+                    {filteredProjects.map((project: any) => (
                         <Card
                             key={project._id}
                             padding="md"
@@ -186,26 +194,32 @@ export default function Projects() {
                                         </h3>
                                     </div>
                                 </div>
+
                                 <div className="flex items-center gap-2">
-                                    <Badge variant={getStatusBadgeVariant(project.status)} size="sm">
-                                        {project.status}
-                                    </Badge>
-                                    {/* ✅ ADD THIS: Restore button for archived projects */}
-                                    {project.isArchived && (
-                                        <Button
-                                            variant="secondary"
-                                            size="sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (confirm(`Restore project "${project.name}"?`)) {
-                                                    restoreProjectMutation.mutate(project._id);
-                                                }
-                                            }}
-                                            isLoading={restoreProjectMutation.isPending}
-                                        >
-                                            <Archive className="w-3 h-3 mr-1" />
-                                            Restore
-                                        </Button>
+                                    {project.isDeleted ? (
+                                        <>
+                                            <Badge variant="danger" size="sm">
+                                                DELETED
+                                            </Badge>
+                                            {user?.role === 'Administrator' && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (confirm(`Restore project "${project.name}"?`)) {
+                                                            restoreProjectMutation.mutate(project._id);
+                                                        }
+                                                    }}
+                                                    disabled={restoreProjectMutation.isPending}
+                                                    className="text-xs text-green-600 hover:text-green-700 font-medium underline"
+                                                >
+                                                    {restoreProjectMutation.isPending ? 'Restoring...' : 'Restore'}
+                                                </button>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <Badge variant={getStatusBadgeVariant(project.status)} size="sm">
+                                            {project.status}
+                                        </Badge>
                                     )}
                                 </div>
                             </div>
@@ -241,7 +255,6 @@ export default function Projects() {
                                 )}
                             </div>
 
-                            {/* Simple progress bar if progress or stats exist */}
                             {typeof project.progress === 'number' && (
                                 <div className="mt-3">
                                     <div className="flex justify-between text-[11px] text-gray-500 mb-1">

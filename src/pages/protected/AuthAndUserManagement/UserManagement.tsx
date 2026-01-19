@@ -6,7 +6,7 @@ import api from '../../../lib/api';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
-interface User {
+export interface User {
     _id: string;
     name: string;
     email: string;

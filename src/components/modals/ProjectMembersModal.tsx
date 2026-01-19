@@ -31,14 +31,18 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
         enabled: !!projectId && isOpen,
     });
 
-    // Fetch available workspace members
-    const { data: availableMembers } = useQuery({
-        queryKey: ['projectMembers', projectId],
+    const workspaceId = typeof project?.workspaceId === 'object'
+        ? project?.workspaceId?._id
+        : project?.workspaceId;
+
+    const { data: workspaceMembers, isLoading: loadingWorkspace } = useQuery({
+        queryKey: ['workspaceMembers', workspaceId],
         queryFn: async () => {
-            const response = await api.get(`/projects/${projectId}/members`);
+            if (!workspaceId) return [];
+            const response = await api.get(`/workspaces/${workspaceId}/members`);
             return response.data;
         },
-        enabled: !!projectId && isOpen,
+        enabled: !!workspaceId && isOpen,
     });
 
     // Add member mutation
@@ -58,7 +62,7 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
     // Update member role mutation
     const updateMemberRoleMutation = useMutation({
         mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
-            api.patch(`/projects/${projectId}/members/${memberId}/role`, { role }),
+            api.patch(`/projects/${projectId}/members/${memberId}`, { role }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['project', projectId] });
         },
@@ -101,7 +105,7 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
     };
 
     // Filter out users who are already members
-    const nonMembers = availableMembers?.filter(
+    const nonMembers = workspaceMembers?.filter(
         (user: any) =>
             !project?.members?.some((m: any) => m.userId._id === user._id)
     ) || [];
@@ -120,11 +124,15 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
                             value={selectedUserId}
                             onChange={(e) => setSelectedUserId(e.target.value)}
                             className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            disabled={loadingWorkspace}
                         >
-                            <option value="">Select user...</option>
+                            <option value="">
+                                {loadingWorkspace ? 'Loading...' : 'Select user...'}
+                            </option>
                             {nonMembers.map((user: any) => (
                                 <option key={user._id} value={user._id}>
-                                    {user.name} ({user.email})
+                                    {user.name} - {user.email}
+                                    {user.workspaceRole && ` (${user.workspaceRole})`}
                                 </option>
                             ))}
                         </select>

@@ -25,11 +25,13 @@ import {
 } from 'lucide-react';
 import CreateTaskModal from '../../../components/ui/CreateTaskModal';
 import ProjectMembersModal from '../../../components/modals/ProjectMembersModal';
+import { useAppSelector } from '../../../store/hooks';
 
 export default function ProjectDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const user = useAppSelector((state) => state.auth.user);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
@@ -153,6 +155,17 @@ export default function ProjectDetail() {
         },
     });
 
+    const restoreProjectMutation = useMutation({
+        mutationFn: () => api.post(`/projects/${id}/restore`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['project', id] });
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+        },
+        onError: (error: any) => {
+            alert('Failed to restore: ' + (error.response?.data?.error || error.message));
+        },
+    });
+
     const filteredTasks = tasks?.filter((task: any) => {
         const matchesSearch = task.title
             .toLowerCase()
@@ -199,19 +212,19 @@ export default function ProjectDetail() {
         return colors[status] || 'default';
     };
 
-    const canManage = project?.canManage ?? true;
-
-    console.log("project", project);
+    const canManage = project?.canManage ?? false;
 
 
-    // Project dropdown menu items
+    // ✅ Role-aware project actions
     const projectMenuItems = [
+        // Edit: Available if canManage (backend controls this)
         canManage && {
             label: 'Edit Project',
             icon: <Edit className="w-4 h-4" />,
             onClick: () => setIsEditProjectModalOpen(true),
         },
-        canManage &&
+        // Archive/Unarchive: Admin/Workspace Admin/Project Owner only
+        canManage && user?.role === 'Administrator' &&
         (project?.status === 'ARCHIVED'
             ? {
                 label: 'Unarchive Project',
@@ -231,7 +244,8 @@ export default function ProjectDetail() {
                     }
                 },
             }),
-        canManage && {
+        // Delete: Administrator only
+        user?.role === 'Administrator' && {
             label: 'Delete Project',
             icon: <Trash2 className="w-4 h-4" />,
             onClick: () => {
@@ -246,6 +260,7 @@ export default function ProjectDetail() {
             variant: 'danger' as const,
         },
     ].filter(Boolean) as any;
+
 
     // Task dropdown menu generator
     const getTaskMenuItems = (task: any) => [
@@ -332,34 +347,68 @@ export default function ProjectDetail() {
                         </p>
                     </div>
                     <div className="flex items-center space-x-2">
-                        <Button
-                            variant="secondary"
-                            size="md"
-                            onClick={() => setIsMembersModalOpen(true)}
-                        >
-                            <Users className="w-4 h-4 mr-2" />
-                            Manage Members
-                        </Button>
+                        {user && ['Administrator', 'Manager'].includes(user.role) && (
+                            <Button
+                                variant="secondary"
+                                size="md"
+                                onClick={() => setIsMembersModalOpen(true)}
+                            >
+                                <Users className="w-4 h-4 mr-2" />
+                                Manage Members
+                            </Button>
+                        )}
                         <Button
                             variant="primary"
                             size="md"
                             onClick={() => setIsCreateTaskModalOpen(true)}
                             disabled={!canManage}
+                            disabledMessage={!canManage ? "You don't have permission to create tasks" : undefined}
                         >
                             <Plus className="w-4 h-4 mr-2" />
                             New Task
                         </Button>
-                        <DropdownMenu
-                            trigger={
-                                <Button variant="ghost" size="md">
-                                    <MoreVertical className="w-4 h-4" />
-                                </Button>
-                            }
-                            items={projectMenuItems}
-                        />
+                        {projectMenuItems.length > 0 && (
+                            <DropdownMenu
+                                trigger={
+                                    <Button variant="ghost" size="md">
+                                        <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                }
+                                items={projectMenuItems}
+                            />
+                        )}
                     </div>
                 </div>
             </div>
+
+            {project?.isDeleted && (
+                <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-semibold text-red-800">
+                                This project has been deleted
+                            </p>
+                            <p className="text-xs text-red-600 mt-1">
+                                Deleted on {new Date(project.deletedAt).toLocaleDateString()}
+                            </p>
+                        </div>
+                        {user?.role === 'Administrator' && (
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => {
+                                    if (confirm(`Restore project "${project.name}"?`)) {
+                                        restoreProjectMutation.mutate();
+                                    }
+                                }}
+                                isLoading={restoreProjectMutation.isPending}
+                            >
+                                Restore Project
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Project Info / Stats */}
             <Card padding="md">
