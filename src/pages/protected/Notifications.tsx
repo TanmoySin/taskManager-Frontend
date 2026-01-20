@@ -8,7 +8,7 @@ import { Bell, Check, CheckCheck, Trash2, Clock } from 'lucide-react';
 export default function Notifications() {
     const queryClient = useQueryClient();
 
-    const { data: notifications, isLoading } = useQuery({
+    const { data, isLoading } = useQuery({
         queryKey: ['notifications'],
         queryFn: async () => {
             const response = await api.get('/notifications');
@@ -16,12 +16,18 @@ export default function Notifications() {
         },
     });
 
+    // ✅ HANDLE BOTH RESPONSE FORMATS
+    const notifications = Array.isArray(data)
+        ? data
+        : data?.notifications || [];
+
     const markAsReadMutation = useMutation({
         mutationFn: (id: string) => api.patch(`/notifications/${id}/read`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['notifications'] });
         },
     });
+
     const markAllReadMutation = useMutation({
         mutationFn: () => api.patch('/notifications/mark-all-read'),
         onSuccess: () => {
@@ -45,6 +51,7 @@ export default function Notifications() {
             COMMENT_ADDED: '💬',
             MENTION: '@',
             DUE_DATE_REMINDER: '⏰',
+            DEADLINE: '🚨', // ✅ ADD THIS
         };
         return icons[type] || '🔔';
     };
@@ -128,7 +135,7 @@ export default function Notifications() {
                                             </div>
                                             {notification.taskId && (
                                                 <a
-                                                    href={`#`}
+                                                    href={`/tasks/${notification.taskId._id || notification.taskId}`}
                                                     className="text-blue-600 hover:text-blue-700 font-medium"
                                                 >
                                                     View Task

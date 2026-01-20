@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { logout } from '../../store/authSlice';
 import { Bell, LogOut, Search, ChevronDown } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { useUnreadCount } from '../../hooks/useNotifications';
 
 interface NavbarProps {
     sidebarToggled: boolean;
@@ -15,7 +15,6 @@ const Navbar: FC<NavbarProps> = () => {
     const navigate = useNavigate();
     const user = useAppSelector((state) => state.auth.user);
     const [showUserMenu, setShowUserMenu] = useState(false);
-
 
     const handleLogout = async () => {
         try {
@@ -28,16 +27,7 @@ const Navbar: FC<NavbarProps> = () => {
         }
     };
 
-    const { data: notifications } = useQuery({
-        queryKey: ['notifications'],
-        queryFn: async () => {
-            const response = await api.get('/notifications');
-            return response.data;
-        },
-        refetchInterval: 30000,
-    });
-
-    const unreadCount = notifications?.filter((n: any) => !n.isRead).length || 0;
+    const { data: unreadCount = 0 } = useUnreadCount();
 
     return (
         <nav className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">

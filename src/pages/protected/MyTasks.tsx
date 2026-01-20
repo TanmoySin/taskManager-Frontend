@@ -12,7 +12,6 @@ import {
     Calendar,
     User,
     MoreVertical,
-    Timer,
 } from "lucide-react";
 import CreateTaskModal from "../../components/ui/CreateTaskModal";
 import TaskDetailModal from "../../components/modals/TaskDetailModal";
@@ -32,16 +31,6 @@ export default function MyTasks() {
         },
     });
 
-    // ✅ Check if user has a running timer
-    const { data: runningTimer } = useQuery({
-        queryKey: ["runningTimer"],
-        queryFn: async () => {
-            const response = await api.get("/time-tracking/timer/current");
-            return response.data.runningTimer;
-        },
-        refetchInterval: 5000, // Poll every 5 seconds
-    });
-
     const updateStatusMutation = useMutation({
         mutationFn: ({ taskId, status }: { taskId: string; status: string }) =>
             api.patch(`/tasks/${taskId}/status`, { status }),
@@ -51,20 +40,6 @@ export default function MyTasks() {
         },
     });
 
-    // ✅ NEW: Start Timer Mutation
-    const startTimerMutation = useMutation({
-        mutationFn: (data: { taskId: string; description: string }) =>
-            api.post("/time-tracking/timer/start", data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["runningTimer"] });
-        },
-        onError: (error: any) => {
-            alert(
-                "Failed to start timer: " +
-                (error.response?.data?.error || error.message)
-            );
-        },
-    });
 
     const filteredTasks = tasks?.filter((task: any) => {
         const matchesSearch =
@@ -95,23 +70,6 @@ export default function MyTasks() {
             TODO: "default",
         };
         return colors[status] || "default";
-    };
-
-    // ✅ Handle timer start
-    const handleStartTimer = (task: any, e: React.MouseEvent) => {
-        e.stopPropagation();
-
-        if (runningTimer) {
-            alert(
-                `You already have a timer running for "${runningTimer.task?.title}". Stop it first.`
-            );
-            return;
-        }
-
-        startTimerMutation.mutate({
-            taskId: task._id,
-            description: `Working on ${task.title}`,
-        });
     };
 
     return (
@@ -196,15 +154,6 @@ export default function MyTasks() {
                                         <Badge variant={getStatusColor(task.status)} size="sm">
                                             {task.status.replace("_", " ")}
                                         </Badge>
-                                        {/* ✅ Show indicator if timer is running for this task */}
-                                        {runningTimer?.taskId === task._id && (
-                                            <Badge variant="danger" size="sm">
-                                                <div className="flex items-center space-x-1">
-                                                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                                                    <span>Timer Running</span>
-                                                </div>
-                                            </Badge>
-                                        )}
                                     </div>
 
                                     {task.description && (
@@ -231,35 +180,6 @@ export default function MyTasks() {
                                     className="flex items-center space-x-2"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    {/* ✅ NEW: Timer Button */}
-                                    <button
-                                        onClick={(e) => handleStartTimer(task, e)}
-                                        disabled={
-                                            runningTimer?.taskId === task._id ||
-                                            startTimerMutation.isPending
-                                        }
-                                        className={`flex items-center space-x-1 px-2 py-1 text-xs rounded-lg border transition-colors
-                                            ${runningTimer?.taskId === task._id
-                                                ? "bg-red-50 border-red-200 text-red-600 cursor-not-allowed"
-                                                : "bg-white border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300"
-                                            }`}
-                                        title={
-                                            runningTimer?.taskId === task._id
-                                                ? "Timer running for this task"
-                                                : "Start timer for this task"
-                                        }
-                                    >
-                                        <Timer
-                                            className={`w-3 h-3 ${runningTimer?.taskId === task._id
-                                                ? "text-red-600"
-                                                : "text-blue-600"
-                                                }`}
-                                        />
-                                        <span className="hidden md:inline">
-                                            {runningTimer?.taskId === task._id ? "Running" : "Start"}
-                                        </span>
-                                    </button>
-
                                     <select
                                         value={task.status}
                                         onChange={(e) =>

@@ -1,15 +1,19 @@
 import { type FC, useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../../lib/api';
+import api, { dependencyApi } from '../../lib/api';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import {
-    Calendar, User, Clock, Paperclip, MessageSquare,
-    CheckSquare, Plus, Send, Download, UserPlus, Trash2, FileText
+    Calendar, User, Paperclip, MessageSquare,
+    CheckSquare, Plus, Send, Download, UserPlus, Trash2, FileText,
+    Clock,
+    AlertCircle
 } from 'lucide-react';
 import { useAppSelector } from '../../store/hooks';
+import ActivityFeed from '../../pages/protected/Dashboard/ActivityFeed';
+import MentionInput from '../ui/MentionInput';
 
 interface TaskDetailModalProps {
     isOpen: boolean;
@@ -24,16 +28,12 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
     const userRole = user?.role || 'Employee';
     const currentUserId = user?.id;
 
-    const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'time'>('details');
+    const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'activity'>('details');
     const [newComment, setNewComment] = useState('');
     const [newSubtask, setNewSubtask] = useState('');
     const [isEditing, setIsEditing] = useState(false);
-    const [timeFormData, setTimeFormData] = useState({
-        hours: '',
-        date: new Date().toISOString().split('T')[0],
-        description: '',
-        isBillable: true,
-    });
+    const [showDependencyModal, setShowDependencyModal] = useState(false);
+    const [selectedDependency, setSelectedDependency] = useState('');
 
     const { data: task, isLoading } = useQuery({
         queryKey: ['task', taskId],
@@ -42,17 +42,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
             return response.data;
         },
         enabled: !!taskId && isOpen,
-    });
-
-    const { data: timeEntries, isLoading: timeLoading } = useQuery({
-        queryKey: ['taskTimeEntries', taskId],
-        queryFn: async () => {
-            const response = await api.get('/time-tracking/entries', {
-                params: { taskId }
-            });
-            return response.data;
-        },
-        enabled: !!taskId && isOpen && activeTab === 'time',
     });
 
     const { data: projectMembers, isLoading: membersLoading } = useQuery({
@@ -75,6 +64,20 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         },
         enabled: !!taskId && isOpen,
     });
+
+    const { data: availableTasks } = useQuery({
+        queryKey: ['projectTasks', task?.projectId?._id],
+        queryFn: async () => {
+            if (!task?.projectId?._id) return [];
+            const response = await api.get(`/tasks/project/${task.projectId._id}`);
+            return response.data.filter((t: any) =>
+                t._id !== taskId &&
+                !task.dependencies?.some((dep: any) => dep._id === t._id)
+            );
+        },
+        enabled: showDependencyModal && !!task?.projectId?._id,
+    });
+
 
     const [editData, setEditData] = useState({
         title: '',
@@ -149,12 +152,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         return uploadedById === currentUserId;
     };
 
-    const canDeleteTimeEntry = (entry: any) => {
-        if (entry.status === 'APPROVED') return false;
-        if (userRole === 'Administrator') return true;
-        return entry.userId?._id === currentUserId || entry.userId === currentUserId;
-    };
-
     const getFilteredMembers = () => {
         if (!projectMembers) return [];
         if (userRole === 'Administrator') return projectMembers;
@@ -177,10 +174,18 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
             setIsEditing(false);
         },
         onError: (error: any) => {
-            const errorMsg = error.response?.data?.error || error.message || 'Failed to update task';
-            alert(errorMsg);
+            const errorMsg = error?.response?.data?.error || error.message || 'Failed to update task';
+            const details = error?.response?.data?.details;
+
+            // ✅ SHOW DEPENDENCY ERROR
+            if (details) {
+                alert(`${errorMsg}\n\n${details}`);
+            } else {
+                alert(errorMsg);
+            }
         },
     });
+
 
     const addCommentMutation = useMutation({
         mutationFn: (body: string) => api.post('/comments', {
@@ -205,35 +210,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         },
         onError: (error: any) => {
             alert(error.response?.data?.error || 'Failed to delete comment');
-        },
-    });
-
-
-    const logTimeMutation = useMutation({
-        mutationFn: (data: any) => api.post('/time-tracking/entries', { ...data, taskId }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['taskTimeEntries', taskId] });
-            queryClient.invalidateQueries({ queryKey: ['timeEntries'] });
-            setTimeFormData({
-                hours: '',
-                date: new Date().toISOString().split('T')[0],
-                description: '',
-                isBillable: true,
-            });
-        },
-        onError: (error: any) => {
-            alert(error.response?.data?.error || 'Failed to log time');
-        },
-    });
-
-    const deleteTimeMutation = useMutation({
-        mutationFn: (id: string) => api.delete(`/time-tracking/entries/${id}`),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['taskTimeEntries', taskId] });
-            queryClient.invalidateQueries({ queryKey: ['timeEntries'] });
-        },
-        onError: (error: any) => {
-            alert(error.response?.data?.error || 'Failed to delete time entry');
         },
     });
 
@@ -303,6 +279,29 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
         },
     });
 
+    const removeDependencyMutation = useMutation({
+        mutationFn: (dependencyId: string) =>
+            dependencyApi.remove(taskId, dependencyId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+        },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to remove dependency');
+        },
+    });
+
+    const addDependencyMutation = useMutation({
+        mutationFn: (blockedByTaskId: string) =>
+            dependencyApi.add(taskId, blockedByTaskId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+            setShowDependencyModal(false);
+        },
+        onError: (error: any) => {
+            alert(error.response?.data?.error || 'Failed to add dependency');
+        },
+    });
+
     const handleSaveEdit = () => {
         if (!editData.title.trim()) {
             alert('Task title is required');
@@ -335,28 +334,6 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
             }
             uploadAttachmentMutation.mutate(file);
         }
-    };
-
-    const handleLogTime = (e: React.FormEvent) => {
-        e.preventDefault();
-        const hours = parseFloat(timeFormData.hours);
-
-        if (!hours || hours <= 0) {
-            alert('Please enter valid hours');
-            return;
-        }
-
-        if (hours > 24) {
-            alert('Hours cannot exceed 24');
-            return;
-        }
-
-        logTimeMutation.mutate({
-            hours,
-            date: timeFormData.date,
-            description: timeFormData.description,
-            isBillable: timeFormData.isBillable,
-        });
     };
 
     const getPriorityColor = (priority: string) => {
@@ -466,7 +443,7 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                             {[
                                 { key: 'details', label: 'Details', icon: CheckSquare },
                                 { key: 'comments', label: `Comments (${comments?.length || 0})`, icon: MessageSquare },
-                                { key: 'time', label: `Time (${timeEntries?.length || 0})`, icon: Clock }
+                                { key: 'activity', label: 'Activity', icon: Clock },
                             ].map(({ key, label, icon: Icon }) => (
                                 <button
                                     key={key}
@@ -645,6 +622,80 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                                     )}
                                 </div>
                             </div>
+
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
+                                    <AlertCircle className="w-4 h-4 mr-2" />
+                                    Dependencies
+                                    {task.dependencies?.length > 0 && (
+                                        <Badge variant="warning" size="sm">
+                                            {task.dependencies.length}
+                                        </Badge>
+                                    )}
+                                </h3>
+
+                                {task.dependencies && task.dependencies.length > 0 ? (
+                                    <div className="space-y-2 mb-3">
+                                        {task.dependencies.map((dep: any) => (
+                                            <div
+                                                key={dep._id}
+                                                className="flex items-center justify-between p-2.5 bg-amber-50 border border-amber-200 rounded-lg"
+                                            >
+                                                <div className="flex items-center space-x-2 flex-1">
+                                                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-gray-900 truncate">
+                                                            {dep.title}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500">
+                                                            Blocked by this task
+                                                        </p>
+                                                    </div>
+                                                    <Badge
+                                                        variant={dep.status === 'DONE' ? 'success' : 'warning'}
+                                                        size="sm"
+                                                    >
+                                                        {dep.status?.replace('_', ' ')}
+                                                        {console.log("dep.status", dep.status)}
+                                                    </Badge>
+                                                </div>
+
+                                                {canEdit && (
+                                                    <button
+                                                        onClick={() => removeDependencyMutation.mutate(dep._id)}
+                                                        disabled={removeDependencyMutation.isPending}
+                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-2"
+                                                        title="Remove dependency"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-6 text-gray-400 bg-gray-50 rounded-lg mb-3">
+                                        <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                                        <p className="text-sm">No dependencies</p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            This task is not blocked by any other tasks
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Add Dependency Button */}
+                                {canEdit && (
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        className="w-full"
+                                        onClick={() => setShowDependencyModal(true)}
+                                    >
+                                        <Plus className="w-4 h-4 mr-2" />
+                                        Add Blocking Task
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -707,12 +758,11 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                             </div>
 
                             <form onSubmit={handleAddComment} className="flex space-x-2 pt-3 border-t border-gray-200">
-                                <Input
-                                    type="text"
-                                    placeholder="Add a comment..."
+                                <MentionInput
                                     value={newComment}
-                                    onChange={(e) => setNewComment(e.target.value)}
-                                    className="flex-1"
+                                    onChange={setNewComment}
+                                    placeholder="Add a comment... Use @ to mention someone"
+                                    projectId={task?.projectId?._id}
                                     disabled={addCommentMutation.isPending}
                                 />
                                 <Button
@@ -728,166 +778,9 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                         </div>
                     )}
 
-
-                    {activeTab === 'time' && (
+                    {activeTab === 'activity' && (
                         <div className="space-y-4">
-                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                                <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
-                                    <Clock className="w-4 h-4 mr-2" />
-                                    Log Time
-                                </h4>
-                                <form onSubmit={handleLogTime} className="space-y-3">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Hours <span className="text-red-500">*</span>
-                                            </label>
-                                            <Input
-                                                type="number"
-                                                step="0.25"
-                                                min="0.25"
-                                                max="24"
-                                                required
-                                                placeholder="2.5"
-                                                value={timeFormData.hours}
-                                                onChange={(e) => setTimeFormData({ ...timeFormData, hours: e.target.value })}
-                                                disabled={logTimeMutation.isPending}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Date <span className="text-red-500">*</span>
-                                            </label>
-                                            <Input
-                                                type="date"
-                                                required
-                                                max={new Date().toISOString().split('T')[0]}
-                                                value={timeFormData.date}
-                                                onChange={(e) => setTimeFormData({ ...timeFormData, date: e.target.value })}
-                                                disabled={logTimeMutation.isPending}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-                                        <textarea
-                                            rows={2}
-                                            placeholder="What did you work on?"
-                                            value={timeFormData.description}
-                                            onChange={(e) => setTimeFormData({ ...timeFormData, description: e.target.value })}
-                                            disabled={logTimeMutation.isPending}
-                                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none disabled:bg-gray-100"
-                                        />
-                                    </div>
-
-                                    <div className="flex items-center space-x-4">
-                                        <label className="text-xs font-medium text-gray-700">Billable:</label>
-                                        <label className="flex items-center cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                checked={timeFormData.isBillable === true}
-                                                onChange={() => setTimeFormData({ ...timeFormData, isBillable: true })}
-                                                disabled={logTimeMutation.isPending}
-                                                className="w-3.5 h-3.5 text-blue-600"
-                                            />
-                                            <span className="ml-2 text-sm">Yes</span>
-                                        </label>
-                                        <label className="flex items-center cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                checked={timeFormData.isBillable === false}
-                                                onChange={() => setTimeFormData({ ...timeFormData, isBillable: false })}
-                                                disabled={logTimeMutation.isPending}
-                                                className="w-3.5 h-3.5 text-blue-600"
-                                            />
-                                            <span className="ml-2 text-sm">No</span>
-                                        </label>
-                                    </div>
-
-                                    <Button
-                                        type="submit"
-                                        variant="primary"
-                                        size="sm"
-                                        className="w-full"
-                                        isLoading={logTimeMutation.isPending}
-                                    >
-                                        <Clock className="w-3.5 h-3.5 mr-2" />
-                                        Log Time Entry
-                                    </Button>
-                                </form>
-                            </div>
-
-                            <div>
-                                <h4 className="text-sm font-semibold text-gray-900 mb-3">
-                                    Time Entries
-                                </h4>
-
-                                {timeLoading ? (
-                                    <div className="text-center py-12">
-                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
-                                        <p className="text-sm text-gray-500">Loading time entries...</p>
-                                    </div>
-                                ) : timeEntries && timeEntries.length > 0 ? (
-                                    <div className="space-y-2 max-h-80 overflow-y-auto">
-                                        {timeEntries.map((entry: any) => (
-                                            <div key={entry._id} className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                                                <div className="flex items-start justify-between">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center flex-wrap gap-2 mb-1">
-                                                            <span className="text-sm font-bold text-blue-600">
-                                                                {entry.hours}h
-                                                            </span>
-                                                            <span className="text-xs text-gray-500">
-                                                                {formatDate(entry.date)}
-                                                            </span>
-                                                            {entry.isBillable && (
-                                                                <Badge variant="success" size="sm">Billable</Badge>
-                                                            )}
-                                                            <Badge
-                                                                variant={
-                                                                    entry.status === 'APPROVED' ? 'success' :
-                                                                        entry.status === 'REJECTED' ? 'danger' : 'default'
-                                                                }
-                                                                size="sm"
-                                                            >
-                                                                {entry.status}
-                                                            </Badge>
-                                                        </div>
-                                                        {entry.description && (
-                                                            <p className="text-xs text-gray-600 mb-1">{entry.description}</p>
-                                                        )}
-                                                        <p className="text-xs text-gray-500">
-                                                            Logged by {entry.userId?.name || 'Unknown'}
-                                                        </p>
-                                                    </div>
-                                                    {canDeleteTimeEntry(entry) && (
-                                                        <button
-                                                            onClick={() => {
-                                                                if (confirm('Delete this time entry?')) {
-                                                                    deleteTimeMutation.mutate(entry._id);
-                                                                }
-                                                            }}
-                                                            disabled={deleteTimeMutation.isPending}
-                                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors ml-2"
-                                                            title="Delete time entry"
-                                                        >
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-12 text-gray-400">
-                                        <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                                        <p className="text-sm">No time entries yet</p>
-                                        <p className="text-xs mt-1">Log your first entry above</p>
-                                    </div>
-                                )}
-                            </div>
-
+                            <ActivityFeed limit={15} />
                         </div>
                     )}
                 </div>
@@ -1099,6 +992,54 @@ const TaskDetailModal: FC<TaskDetailModalProps> = ({ isOpen, onClose, taskId }) 
                     </div>
 
                 </div>
+
+                {showDependencyModal && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                            <h3 className="text-lg font-semibold mb-4">Add Blocking Task</h3>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Select a task that must be completed before this task can be worked on.
+                            </p>
+
+                            <select
+                                value={selectedDependency}
+                                onChange={(e) => setSelectedDependency(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
+                            >
+                                <option value="">Select a task...</option>
+                                {availableTasks?.map((task: any) => (
+                                    <option key={task._id} value={task._id}>
+                                        {task.title} ({task.status})
+                                    </option>
+                                ))}
+                            </select>
+
+                            <div className="flex space-x-2">
+                                <Button
+                                    variant="primary"
+                                    onClick={() => {
+                                        if (selectedDependency) {
+                                            addDependencyMutation.mutate(selectedDependency);
+                                        }
+                                    }}
+                                    disabled={!selectedDependency || addDependencyMutation.isPending}
+                                    isLoading={addDependencyMutation.isPending}
+                                >
+                                    Add Dependency
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        setShowDependencyModal(false);
+                                        setSelectedDependency('');
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </Modal>
     );

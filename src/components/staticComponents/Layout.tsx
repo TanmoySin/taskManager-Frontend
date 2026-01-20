@@ -2,7 +2,6 @@ import { useState, type FC } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
-import TimerWidget from "../TimerWidget";
 import SessionWarningModal from "../SessionWarningModal";
 
 const Layout: FC = () => {
@@ -25,7 +24,6 @@ const Layout: FC = () => {
                 </main>
             </div>
             <SessionWarningModal />
-            <TimerWidget />
         </div>
     );
 };

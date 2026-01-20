@@ -1,12 +1,9 @@
-// components/layout/Sidebar.tsx (UPDATED)
+
 import type { FC } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard, CheckSquare, FolderKanban, Users,
     ChevronLeft, ChevronRight, Settings, Trello, UserCog, User,
-    Timer, FileText,
-    CheckCircle,
-    BarChart3,
     Trash2
 } from 'lucide-react';
 import { useAppSelector } from '../../store/hooks';
@@ -26,13 +23,11 @@ const Sidebar: FC<SidebarProps> = ({ isExpanded, onToggleSidebar }) => {
         { path: '/projects', icon: FolderKanban, label: 'Projects' },
         { path: '/kanban', icon: Trello, label: 'Kanban Board' },
         { path: '/workspaces', icon: Users, label: 'Workspaces' },
-        { path: '/time-tracking', icon: Timer, label: 'Time Tracking' },
-        { path: '/timesheets', icon: FileText, label: 'Timesheets' },
     ];
 
     // ✅ Admin/Manager only items
     const adminMenuItems = user?.role === 'Administrator' || user?.role === 'Manager'
-        ? [{ path: '/users', icon: UserCog, label: 'User Management' }, { path: '/timesheets/approvals', icon: CheckCircle, label: 'Timesheet Approvals' }, { path: '/reports/time', icon: BarChart3, label: 'Time Reports' }, { path: '/admin/system-reset', icon: Trash2, label: 'System Reset' }]
+        ? [{ path: '/users', icon: UserCog, label: 'User Management' }, { path: '/admin/system-reset', icon: Trash2, label: 'System Reset' }]
         : [];
 
     const allMenuItems = [...menuItems, ...adminMenuItems];
