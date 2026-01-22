@@ -1,10 +1,12 @@
 import { type FC, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { logout } from '../../store/authSlice';
-import { Bell, LogOut, Search, ChevronDown } from 'lucide-react';
+import { Bell, LogOut, Search, ChevronDown, Timer, Clock } from 'lucide-react';
 import api from '../../lib/api';
 import { useUnreadCount } from '../../hooks/useNotifications';
+import { useActiveTimer } from '../../hooks/useAnalytics';
+import QuickTimerModal from '../modals/QuickTimerModal';
 
 interface NavbarProps {
     sidebarToggled: boolean;
@@ -15,6 +17,16 @@ const Navbar: FC<NavbarProps> = () => {
     const navigate = useNavigate();
     const user = useAppSelector((state) => state.auth.user);
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [showTimerModal, setShowTimerModal] = useState(false);
+    const { data: activeTimer } = useActiveTimer();
+    const hasActiveTimer = activeTimer?.isRunning || false;
+    const timerDuration = activeTimer?.duration || 0;
+
+    const formatDuration = (minutes: number) => {
+        const hours = Math.floor(minutes / 60);
+        const mins = Math.floor(minutes % 60);
+        return `${hours}:${mins.toString().padStart(2, '0')}`;
+    };
 
     const handleLogout = async () => {
         try {
@@ -56,6 +68,30 @@ const Navbar: FC<NavbarProps> = () => {
                             {unreadCount > 9 ? '9+' : unreadCount}
                         </span>
                     )}
+                </button>
+                {hasActiveTimer && (
+                    <Link to="/my-tasks">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors cursor-pointer">
+                            <div className="relative">
+                                <Timer className="w-4 h-4 text-orange-600" />
+                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            </div>
+                            <div className="hidden sm:block">
+                                <p className="text-xs font-semibold text-orange-700">Timer Running</p>
+                                <p className="text-xs text-orange-600 font-mono">{formatDuration(timerDuration)}</p>
+                            </div>
+                            <span className="sm:hidden text-sm font-mono font-semibold text-orange-700">
+                                {formatDuration(timerDuration)}
+                            </span>
+                        </div>
+                    </Link>
+                )}
+                <button
+                    onClick={() => setShowTimerModal(true)}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Quick Timer"
+                >
+                    <Clock className="w-5 h-5 text-gray-600" />
                 </button>
 
                 {/* Divider */}
@@ -139,6 +175,7 @@ const Navbar: FC<NavbarProps> = () => {
                     )}
                 </div>
             </div>
+            <QuickTimerModal isOpen={showTimerModal} onClose={() => setShowTimerModal(false)} />
         </nav>
     );
 };

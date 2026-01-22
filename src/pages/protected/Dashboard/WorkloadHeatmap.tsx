@@ -1,243 +1,243 @@
-import { type FC, useMemo } from 'react';
-import { Calendar } from 'lucide-react';
+import { type FC, useMemo, useState } from 'react';
+import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import Card from '../../../components/ui/Card';
-
-interface Task {
-    _id: string;
-    title: string;
-    dueDate: string;
-    assigneeId: {
-        _id: string;
-        name: string;
-    };
-    status: string;
-    priority: string;
-}
+import Button from '../../../components/ui/Button';
+import { useWorkloadCalendar } from '../../../hooks/useAnalytics';
 
 interface WorkloadHeatmapProps {
-    tasks: Task[];
-    teamMembers: any[];
+    workspaceId?: string;
     isLoading?: boolean;
 }
 
-const WorkloadHeatmap: FC<WorkloadHeatmapProps> = ({
-    tasks,
-    teamMembers,
-    isLoading,
-}) => {
-    // Get next 5 weekdays
-    const weekDays = useMemo(() => {
-        const days = [];
+const WorkloadHeatmap: FC<WorkloadHeatmapProps> = ({ workspaceId, isLoading: parentLoading }) => {
+    const [dateRange, setDateRange] = useState<'7' | '14' | '30'>('7');
+    const [startDate, setStartDate] = useState<string>('');
+
+    // Calculate date range
+    const { start, end } = useMemo(() => {
         const today = new Date();
+        const start = startDate ? new Date(startDate) : new Date(today);
+        const end = new Date(start);
+        end.setDate(start.getDate() + parseInt(dateRange));
 
-        for (let i = 0; i < 5; i++) {
-            const date = new Date(today);
-            date.setDate(today.getDate() + i);
+        return {
+            start: start.toISOString().split('T')[0],
+            end: end.toISOString().split('T')[0],
+        };
+    }, [dateRange, startDate]);
 
-            days.push({
-                date: date,
-                dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
-                dateStr: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                fullDate: date.toISOString().split('T')[0],
-            });
+    // Fetch calendar data from backend
+    const { data: calendarData, isLoading } = useWorkloadCalendar(
+        workspaceId,
+        start,
+        end,
+        !!workspaceId
+    );
+
+    // Generate date array based on range
+    const dates = useMemo(() => {
+        const startDateObj = new Date(start);
+        const days = parseInt(dateRange);
+        return Array.from({ length: days }, (_, i) => {
+            const date = new Date(startDateObj);
+            date.setDate(startDateObj.getDate() + i);
+            return date;
+        });
+    }, [start, dateRange]);
+
+    // Process calendar data
+    const { teamMembers, heatmapData } = useMemo(() => {
+        if (!calendarData || !calendarData.calendar) {
+            return { teamMembers: [], heatmapData: {} };
         }
 
-        return days;
-    }, []);
+        const members = calendarData.members || [];
+        const calendar = calendarData.calendar || {};
 
-    // Calculate workload per employee per day
-    const heatmapData = useMemo(() => {
-        const data: any = {};
+        // Transform calendar data to heatmap format
+        const data: Record<string, Record<string, number>> = {};
 
-        teamMembers.forEach((member: any) => {
-            const userId = member.userId || member._id;
-            const userName = member.name;
-
-            data[userId] = {
-                name: userName,
-                days: {},
-            };
-
-            weekDays.forEach((day) => {
-                data[userId].days[day.fullDate] = {
-                    tasks: [],
-                    count: 0,
-                };
+        members.forEach((member: any) => {
+            data[member.userId] = {};
+            dates.forEach((date) => {
+                const dateStr = date.toISOString().split('T')[0];
+                data[member.userId][dateStr] = 0;
             });
         });
 
-        // Distribute tasks
-        tasks.forEach((task) => {
-            if (!task.dueDate || task.status === 'DONE') return;
-
-            // ✅ FIX: Handle both string and object types
-            let assigneeId: string;
-            if (typeof task.assigneeId === 'string') {
-                assigneeId = task.assigneeId;
-            } else if (task.assigneeId?._id) {
-                assigneeId = task.assigneeId._id;
-            } else {
-                return;
-            }
-
-            if (!data[assigneeId]) return;
-
-            const taskDate = new Date(task.dueDate).toISOString().split('T')[0];
-
-            if (data[assigneeId].days[taskDate]) {
-                data[assigneeId].days[taskDate].tasks.push(task);
-                data[assigneeId].days[taskDate].count++;
-            }
+        // Populate with actual task counts
+        Object.keys(calendar).forEach((dateStr) => {
+            const dayData = calendar[dateStr];
+            Object.keys(dayData).forEach((userId) => {
+                if (data[userId] && data[userId][dateStr] !== undefined) {
+                    data[userId][dateStr] = dayData[userId];
+                }
+            });
         });
 
-        return data;
-    }, [tasks, teamMembers, weekDays]);
+        return { teamMembers: members, heatmapData: data };
+    }, [calendarData, dates]);
 
-    // Get cell color based on task count
-    const getCellColor = (count: number) => {
-        if (count === 0) return 'bg-gray-100 text-gray-400';
-        if (count === 1) return 'bg-green-100 text-green-700 font-semibold';
-        if (count === 2) return 'bg-green-200 text-green-800 font-semibold';
-        if (count === 3) return 'bg-yellow-200 text-yellow-800 font-bold';
-        if (count === 4) return 'bg-yellow-300 text-yellow-900 font-bold';
-        if (count >= 5) return 'bg-red-300 text-red-900 font-bold';
-        return 'bg-gray-100';
+    const getHeatColor = (count: number) => {
+        if (count === 0) return 'bg-gray-100';
+        if (count <= 2) return 'bg-green-200';
+        if (count <= 4) return 'bg-yellow-200';
+        if (count <= 6) return 'bg-orange-300';
+        return 'bg-red-400';
     };
 
-    const getEmojiIndicator = (count: number) => {
-        if (count === 0) return '';
-        if (count <= 2) return '🟢';
-        if (count <= 4) return '🟡';
-        return '🔴';
+    const handlePrevious = () => {
+        const currentStart = new Date(start);
+        currentStart.setDate(currentStart.getDate() - parseInt(dateRange));
+        setStartDate(currentStart.toISOString().split('T')[0]);
     };
 
-    if (isLoading) {
+    const handleNext = () => {
+        const currentStart = new Date(start);
+        currentStart.setDate(currentStart.getDate() + parseInt(dateRange));
+        setStartDate(currentStart.toISOString().split('T')[0]);
+    };
+
+    const handleToday = () => {
+        setStartDate('');
+    };
+
+    if (parentLoading || isLoading) {
         return (
-            <Card padding="md">
-                <div className="animate-pulse">
-                    <div className="h-5 bg-gray-200 rounded w-40 mb-4"></div>
-                    <div className="h-64 bg-gray-200 rounded"></div>
+            <Card padding="none">
+                <div className="p-4 border-b border-gray-200">
+                    <div className="h-5 bg-gray-200 rounded w-40 animate-pulse"></div>
+                </div>
+                <div className="p-4">
+                    <div className="h-48 bg-gray-200 rounded animate-pulse"></div>
                 </div>
             </Card>
         );
     }
 
-    const employeeList = Object.keys(heatmapData);
-
-    if (employeeList.length === 0) {
-        return (
-            <Card padding="md">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Calendar className="w-5 h-5" />
-                    📅 Workload Heatmap
-                </h2>
-                <div className="text-center py-8 text-gray-500">
-                    <p className="text-sm">No team members found</p>
-                </div>
-            </Card>
-        );
+    if (!teamMembers || teamMembers.length === 0) {
+        return null;
     }
 
     return (
-        <Card padding="md">
-            <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <Card padding="none">
+            <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
                     <Calendar className="w-5 h-5" />
-                    📅 Workload Heatmap - Next 5 Days
+                    📅 Workload Calendar
                 </h2>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                    <span>🟢 Light</span>
-                    <span>🟡 Moderate</span>
-                    <span>🔴 Heavy</span>
+
+                {/* Controls */}
+                <div className="flex items-center gap-2">
+                    {/* Date Range Selector */}
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                        {(['7', '14', '30'] as const).map((range) => (
+                            <button
+                                key={range}
+                                onClick={() => setDateRange(range)}
+                                className={`px-3 py-1 text-xs font-medium rounded transition-colors ${dateRange === range
+                                    ? 'bg-white text-blue-600 shadow-sm'
+                                    : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                            >
+                                {range} days
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Navigation */}
+                    <div className="flex items-center gap-1">
+                        <Button variant="secondary" size="sm" onClick={handlePrevious}>
+                            <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={handleToday}>
+                            Today
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={handleNext}>
+                            <ChevronRight className="w-4 h-4" />
+                        </Button>
+                    </div>
                 </div>
             </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                    <thead>
-                        <tr className="border-b-2 border-gray-300">
-                            <th className="text-left text-xs font-semibold text-gray-700 pb-3 pr-4 sticky left-0 bg-white">
-                                Employee
-                            </th>
-                            {weekDays.map((day) => (
-                                <th
-                                    key={day.fullDate}
-                                    className="text-center text-xs font-semibold text-gray-700 pb-3 px-3"
-                                >
-                                    <div>{day.dayName}</div>
-                                    <div className="text-gray-500 font-normal">{day.dateStr}</div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {employeeList.map((userId) => {
-                            const employee = heatmapData[userId];
-
-                            return (
-                                <tr key={userId} className="border-b border-gray-200 hover:bg-gray-50">
-                                    <td className="py-3 pr-4 sticky left-0 bg-white">
-                                        <p className="text-sm font-medium text-gray-900 truncate max-w-[150px]">
-                                            {employee.name}
+            <div className="p-4 overflow-x-auto">
+                <div className="min-w-max">
+                    {/* Header - Dates */}
+                    <div className="flex items-center mb-2">
+                        <div className="w-32 sm:w-40 flex-shrink-0"></div>
+                        <div className="flex gap-2">
+                            {dates.map((date) => {
+                                const isToday = date.toDateString() === new Date().toDateString();
+                                return (
+                                    <div key={date.toISOString()} className="w-16 text-center">
+                                        <p className={`text-xs font-semibold ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>
+                                            {date.toLocaleDateString('en-US', { weekday: 'short' })}
                                         </p>
-                                    </td>
-                                    {weekDays.map((day) => {
-                                        const dayData = employee.days[day.fullDate];
-                                        const count = dayData?.count || 0;
-                                        const emoji = getEmojiIndicator(count);
+                                        <p className={`text-xs ${isToday ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
+                                            {date.getDate()}/{date.getMonth() + 1}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Rows - Members */}
+                    <div className="space-y-1.5">
+                        {teamMembers.slice(0, 10).map((member: any) => (
+                            <div key={member.userId} className="flex items-center">
+                                <div className="w-32 sm:w-40 flex-shrink-0 pr-3">
+                                    <p className="text-sm font-medium text-gray-900 truncate" title={member.name}>
+                                        {member.name}
+                                    </p>
+                                </div>
+                                <div className="flex gap-2">
+                                    {dates.map((date) => {
+                                        const dateStr = date.toISOString().split('T')[0];
+                                        const count = heatmapData[member.userId]?.[dateStr] || 0;
+                                        const isToday = date.toDateString() === new Date().toDateString();
 
                                         return (
-                                            <td
-                                                key={day.fullDate}
-                                                className="px-3 py-3 text-center"
-                                                title={
-                                                    count > 0
-                                                        ? `${count} task${count > 1 ? 's' : ''} due:\n${dayData.tasks.map((t: any) => `- ${t.title}`).join('\n')}`
-                                                        : 'No tasks due'
-                                                }
+                                            <div
+                                                key={dateStr}
+                                                className={`w-16 h-12 rounded ${getHeatColor(count)} flex items-center justify-center border-2 ${isToday ? 'border-blue-400' : 'border-gray-200'
+                                                    } hover:ring-2 hover:ring-blue-300 transition-all cursor-pointer`}
+                                                title={`${member.name} - ${count} tasks on ${date.toLocaleDateString()}`}
                                             >
-                                                <div
-                                                    className={`inline-flex items-center justify-center w-12 h-12 rounded-lg transition-all ${getCellColor(count)} cursor-pointer hover:shadow-md`}
-                                                >
-                                                    <span className="text-sm">
-                                                        {count > 0 ? (
-                                                            <>
-                                                                {emoji} {count}
-                                                            </>
-                                                        ) : (
-                                                            '-'
-                                                        )}
-                                                    </span>
-                                                </div>
-                                            </td>
+                                                <span className="text-sm font-bold text-gray-700">
+                                                    {count > 0 ? count : ''}
+                                                </span>
+                                            </div>
                                         );
                                     })}
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
 
-            {/* Legend */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-                <p className="text-xs text-gray-600 mb-2 font-semibold">Legend:</p>
-                <div className="flex flex-wrap gap-3 text-xs">
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-6 h-6 rounded bg-gray-100 border border-gray-300"></div>
-                        <span className="text-gray-600">0 tasks</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-6 h-6 rounded bg-green-100 border border-green-300"></div>
-                        <span className="text-gray-600">1-2 tasks (Light)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-6 h-6 rounded bg-yellow-200 border border-yellow-400"></div>
-                        <span className="text-gray-600">3-4 tasks (Moderate)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-6 h-6 rounded bg-red-300 border border-red-400"></div>
-                        <span className="text-gray-600">5+ tasks (Heavy)</span>
+                    {teamMembers.length > 10 && (
+                        <p className="text-xs text-gray-500 text-center mt-3">
+                            Showing first 10 members • {teamMembers.length - 10} more not displayed
+                        </p>
+                    )}
+
+                    {/* Legend */}
+                    <div className="flex items-center justify-center gap-3 mt-4 pt-3 border-t border-gray-200">
+                        <span className="text-xs text-gray-600 font-medium">Workload:</span>
+                        <div className="flex items-center gap-2">
+                            {[
+                                { label: 'None', color: 'bg-gray-100' },
+                                { label: '1-2', color: 'bg-green-200' },
+                                { label: '3-4', color: 'bg-yellow-200' },
+                                { label: '5-6', color: 'bg-orange-300' },
+                                { label: '7+', color: 'bg-red-400' },
+                            ].map((item) => (
+                                <div key={item.label} className="flex items-center gap-1">
+                                    <div className={`w-4 h-4 rounded ${item.color} border border-gray-300`}></div>
+                                    <span className="text-xs text-gray-600">{item.label}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>

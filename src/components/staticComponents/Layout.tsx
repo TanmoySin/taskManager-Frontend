@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
 import SessionWarningModal from "../SessionWarningModal";
+import FloatingActionButton from "../ui/FloatingActionButton";
 
 const Layout: FC = () => {
     const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -24,6 +25,7 @@ const Layout: FC = () => {
                 </main>
             </div>
             <SessionWarningModal />
+            <FloatingActionButton />
         </div>
     );
 };

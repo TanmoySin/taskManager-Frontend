@@ -6,6 +6,7 @@ import {
     AlertCircle,
     Calendar,
     Clock,
+    RefreshCw,
 } from 'lucide-react';
 import { useAppSelector } from '../../../store/hooks';
 import api from '../../../lib/api';
@@ -14,12 +15,13 @@ import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
 import Badge from '../../../components/ui/Badge';
 import ProductivityInsights from './ProductivityInsights';
+import MyTimeWidget from './MyTimeWidget';
 
 const EmployeeDashboard: FC = () => {
     const user = useAppSelector((state) => state.auth.user);
 
     // Get my tasks
-    const { data: myTasksRaw } = useQuery({
+    const { data: myTasksRaw, isLoading: tasksLoading, refetch: refetchTasks } = useQuery({
         queryKey: ['myTasks'],
         queryFn: async () => {
             const response = await api.get('/tasks/my-tasks');
@@ -30,7 +32,7 @@ const EmployeeDashboard: FC = () => {
     const myTasks: any[] = Array.isArray(myTasksRaw) ? myTasksRaw : [];
 
     // Get productivity stats
-    const { data: productivityData, isLoading: productivityLoading } = useProductivityStats('week');
+    const { data: productivityData, isLoading: productivityLoading, refetch: refetchProductivity } = useProductivityStats('week');
 
     const now = new Date();
     const todayEnd = new Date(now);
@@ -47,7 +49,7 @@ const EmployeeDashboard: FC = () => {
         const other: any[] = [];
 
         myTasks.forEach((task) => {
-            if (task.status === 'DONE') return;
+            if (task.status === 'DONE' || task.status === 'CANCELED') return;
 
             if (task.dueDate) {
                 const dueDate = new Date(task.dueDate);
@@ -80,223 +82,268 @@ const EmployeeDashboard: FC = () => {
         return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     };
 
+    const handleRefreshAll = () => {
+        refetchTasks();
+        refetchProductivity();
+    };
+
+    const isRefreshing = tasksLoading || productivityLoading;
+
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">
+                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
                         👋 Welcome, {user?.name}!
                     </h1>
-                    <p className="text-gray-600 text-sm mt-1">
+                    <p className="text-gray-600 text-sm mt-0.5">
                         Here's your personal task overview and performance.
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Link to="/my-tasks">
                         <Button variant="secondary" size="sm">
-                            View All Tasks
+                            <span className="hidden sm:inline">View All Tasks</span>
+                            <span className="sm:hidden">All Tasks</span>
                         </Button>
                     </Link>
-                    <Link to="/projects">
-                        <Button variant="primary" size="sm">
-                            New Task
-                        </Button>
-                    </Link>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleRefreshAll}
+                        disabled={isRefreshing}
+                        isLoading={isRefreshing}
+                    >
+                        <RefreshCw className={`w-4 h-4 ${!isRefreshing && 'sm:mr-2'}`} />
+                        <span className="hidden sm:inline">{!isRefreshing && 'Refresh'}</span>
+                    </Button>
                 </div>
             </div>
 
             {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card padding="md" className="border-l-4 border-l-red-500">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card padding="md" className="border-l-4 border-l-red-500 hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm text-gray-600 mb-1">Overdue</p>
-                            <p className="text-3xl font-bold text-red-600">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-600 mb-1 truncate">Overdue</p>
+                            <p className="text-2xl sm:text-3xl font-bold text-red-600">
                                 {overdueTasks.length}
                             </p>
                         </div>
-                        <AlertCircle className="w-8 h-8 text-red-500" />
+                        <AlertCircle className="w-6 h-6 sm:w-8 sm:h-8 text-red-500 flex-shrink-0" />
                     </div>
                 </Card>
 
-                <Card padding="md" className="border-l-4 border-l-yellow-500">
+                <Card padding="md" className="border-l-4 border-l-yellow-500 hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm text-gray-600 mb-1">Due Today</p>
-                            <p className="text-3xl font-bold text-yellow-600">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-600 mb-1 truncate">Due Today</p>
+                            <p className="text-2xl sm:text-3xl font-bold text-yellow-600">
                                 {dueTodayTasks.length}
                             </p>
                         </div>
-                        <Calendar className="w-8 h-8 text-yellow-500" />
+                        <Calendar className="w-6 h-6 sm:w-8 sm:h-8 text-yellow-500 flex-shrink-0" />
                     </div>
                 </Card>
 
-                <Card padding="md" className="border-l-4 border-l-blue-500">
+                <Card padding="md" className="border-l-4 border-l-blue-500 hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm text-gray-600 mb-1">This Week</p>
-                            <p className="text-3xl font-bold text-blue-600">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-600 mb-1 truncate">This Week</p>
+                            <p className="text-2xl sm:text-3xl font-bold text-blue-600">
                                 {dueThisWeekTasks.length}
                             </p>
                         </div>
-                        <Clock className="w-8 h-8 text-blue-500" />
+                        <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500 flex-shrink-0" />
                     </div>
                 </Card>
 
-                <Card padding="md" className="border-l-4 border-l-green-500">
+                <Card padding="md" className="border-l-4 border-l-green-500 hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
-                        <div>
-                            <p className="text-sm text-gray-600 mb-1">Completed (Week)</p>
-                            <p className="text-3xl font-bold text-green-600">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-600 mb-1 truncate">Done (Week)</p>
+                            <p className="text-2xl sm:text-3xl font-bold text-green-600">
                                 {productivityData?.completedTasks || 0}
                             </p>
                         </div>
-                        <CheckCircle2 className="w-8 h-8 text-green-500" />
+                        <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 flex-shrink-0" />
                     </div>
                 </Card>
             </div>
 
             {/* My Tasks Today */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2">
-                    <Card padding="md">
-                        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                            🎯 My Tasks Today
-                        </h2>
+                    <Card padding="none">
+                        <div className="p-4 border-b border-gray-200">
+                            <h2 className="text-base font-semibold text-gray-900">
+                                🎯 My Tasks Today
+                            </h2>
+                        </div>
 
-                        {/* Overdue Tasks */}
-                        {overdueTasks.length > 0 && (
-                            <div className="mb-6">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <AlertCircle className="w-4 h-4 text-red-600" />
-                                    <h3 className="font-semibold text-sm text-red-600">
-                                        🔴 OVERDUE ({overdueTasks.length})
-                                    </h3>
-                                </div>
-                                <div className="space-y-2">
-                                    {overdueTasks.map((task) => (
-                                        <Link
-                                            key={task._id}
-                                            to={`/tasks/${task._id}`}
-                                            className="block p-3 bg-red-50 border border-red-200 rounded-lg hover:border-red-300 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium text-sm text-gray-900 truncate">
-                                                        {task.title}
-                                                    </p>
-                                                    <p className="text-xs text-gray-600 mt-1">
-                                                        {task.projectId?.name || 'No project'}
-                                                    </p>
+                        <div className="p-4">
+                            {/* Overdue Tasks */}
+                            {overdueTasks.length > 0 && (
+                                <div className="mb-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <AlertCircle className="w-4 h-4 text-red-600" />
+                                        <h3 className="font-semibold text-sm text-red-600">
+                                            OVERDUE ({overdueTasks.length})
+                                        </h3>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {overdueTasks.map((task) => (
+                                            <Link
+                                                key={task._id}
+                                                to={`/my-tasks`}
+                                                className="block p-3 bg-red-50 border border-red-200 rounded-lg hover:border-red-300 hover:shadow-sm transition-all"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-medium text-sm text-gray-900 truncate">
+                                                            {task.title}
+                                                        </p>
+                                                        <p className="text-xs text-gray-600 mt-0.5 truncate">
+                                                            {task.projectId?.name || 'No project'}
+                                                        </p>
+                                                    </div>
+                                                    <Badge variant="danger" size="sm">
+                                                        {getDaysOverdue(task.dueDate)}d
+                                                    </Badge>
                                                 </div>
-                                                <Badge variant="danger" size="sm">
-                                                    {getDaysOverdue(task.dueDate)} days overdue
-                                                </Badge>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Due Today */}
-                        {dueTodayTasks.length > 0 && (
-                            <div className="mb-6">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Calendar className="w-4 h-4 text-yellow-600" />
-                                    <h3 className="font-semibold text-sm text-yellow-600">
-                                        🟡 DUE TODAY ({dueTodayTasks.length})
-                                    </h3>
-                                </div>
-                                <div className="space-y-2">
-                                    {dueTodayTasks.map((task) => (
-                                        <Link
-                                            key={task._id}
-                                            to={`/tasks/${task._id}`}
-                                            className="block p-3 bg-yellow-50 border border-yellow-200 rounded-lg hover:border-yellow-300 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium text-sm text-gray-900 truncate">
-                                                        {task.title}
-                                                    </p>
-                                                    <p className="text-xs text-gray-600 mt-1">
-                                                        {task.projectId?.name || 'No project'}
-                                                    </p>
-                                                </div>
-                                                <Badge
-                                                    variant={task.priority === 'HIGH' || task.priority === 'URGENT' ? 'danger' : 'warning'}
-                                                    size="sm"
-                                                >
-                                                    {task.priority}
-                                                </Badge>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Due This Week */}
-                        {dueThisWeekTasks.length > 0 && (
-                            <div>
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Clock className="w-4 h-4 text-blue-600" />
-                                    <h3 className="font-semibold text-sm text-blue-600">
-                                        🟢 THIS WEEK ({dueThisWeekTasks.length})
-                                    </h3>
-                                </div>
-                                <div className="space-y-2">
-                                    {dueThisWeekTasks.slice(0, 5).map((task) => (
-                                        <Link
-                                            key={task._id}
-                                            to={`/tasks/${task._id}`}
-                                            className="block p-3 bg-blue-50 border border-blue-200 rounded-lg hover:border-blue-300 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium text-sm text-gray-900 truncate">
-                                                        {task.title}
-                                                    </p>
-                                                    <p className="text-xs text-gray-600 mt-1">
-                                                        {task.projectId?.name || 'No project'} • Due:{' '}
-                                                        {new Date(task.dueDate).toLocaleDateString()}
-                                                    </p>
-                                                </div>
-                                                <Badge variant="info" size="sm">
-                                                    {task.status}
-                                                </Badge>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                    {dueThisWeekTasks.length > 5 && (
-                                        <p className="text-xs text-center text-gray-500 py-2">
-                                            +{dueThisWeekTasks.length - 5} more tasks
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {overdueTasks.length === 0 &&
-                            dueTodayTasks.length === 0 &&
-                            dueThisWeekTasks.length === 0 && (
-                                <div className="text-center py-12 text-gray-500">
-                                    <CheckCircle2 className="w-16 h-16 mx-auto mb-3 text-gray-300" />
-                                    <p className="text-sm">🎉 All caught up! No urgent tasks.</p>
+                                            </Link>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
+
+                            {/* Due Today */}
+                            {dueTodayTasks.length > 0 && (
+                                <div className="mb-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Calendar className="w-4 h-4 text-yellow-600" />
+                                        <h3 className="font-semibold text-sm text-yellow-600">
+                                            DUE TODAY ({dueTodayTasks.length})
+                                        </h3>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {dueTodayTasks.map((task) => (
+                                            <Link
+                                                key={task._id}
+                                                to={`/my-tasks`}
+                                                className="block p-3 bg-yellow-50 border border-yellow-200 rounded-lg hover:border-yellow-300 hover:shadow-sm transition-all"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-medium text-sm text-gray-900 truncate">
+                                                            {task.title}
+                                                        </p>
+                                                        <p className="text-xs text-gray-600 mt-0.5 truncate">
+                                                            {task.projectId?.name || 'No project'}
+                                                        </p>
+                                                    </div>
+                                                    {task.priority && (
+                                                        <Badge
+                                                            variant={
+                                                                task.priority === 'HIGH' || task.priority === 'URGENT'
+                                                                    ? 'danger'
+                                                                    : 'warning'
+                                                            }
+                                                            size="sm"
+                                                        >
+                                                            {task.priority}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Due This Week */}
+                            {dueThisWeekTasks.length > 0 && (
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Clock className="w-4 h-4 text-blue-600" />
+                                        <h3 className="font-semibold text-sm text-blue-600">
+                                            THIS WEEK ({dueThisWeekTasks.length})
+                                        </h3>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {dueThisWeekTasks.slice(0, 5).map((task) => (
+                                            <Link
+                                                key={task._id}
+                                                to={`/my-tasks`}
+                                                className="block p-3 bg-blue-50 border border-blue-200 rounded-lg hover:border-blue-300 hover:shadow-sm transition-all"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-medium text-sm text-gray-900 truncate">
+                                                            {task.title}
+                                                        </p>
+                                                        <p className="text-xs text-gray-600 mt-0.5 truncate">
+                                                            {task.projectId?.name || 'No project'} •{' '}
+                                                            {new Date(task.dueDate).toLocaleDateString('en-US', {
+                                                                month: 'short',
+                                                                day: 'numeric',
+                                                            })}
+                                                        </p>
+                                                    </div>
+                                                    <Badge variant="info" size="sm">
+                                                        {task.status}
+                                                    </Badge>
+                                                </div>
+                                            </Link>
+                                        ))}
+                                        {dueThisWeekTasks.length > 5 && (
+                                            <p className="text-xs text-center text-gray-500 py-2 font-medium">
+                                                +{dueThisWeekTasks.length - 5} more
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {overdueTasks.length === 0 &&
+                                dueTodayTasks.length === 0 &&
+                                dueThisWeekTasks.length === 0 && (
+                                    <div className="text-center py-12">
+                                        <div className="inline-flex items-center justify-center w-16 h-16 bg-green-50 rounded-full mb-3">
+                                            <CheckCircle2 className="w-8 h-8 text-green-500" />
+                                        </div>
+                                        <p className="text-sm text-gray-900 font-medium mb-1">
+                                            🎉 All caught up!
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            No urgent tasks require your attention.
+                                        </p>
+                                    </div>
+                                )}
+                        </div>
                     </Card>
                 </div>
 
-                {/* My Performance */}
-                <div className="lg:col-span-1">
+                {/* Right Sidebar */}
+                <div className="lg:col-span-1 space-y-4">
+                    {/* ⭐ NEW: My Time Widget */}
+                    <MyTimeWidget />
+
+                    {/* My Performance */}
                     <ProductivityInsights
                         data={productivityData}
                         isLoading={productivityLoading}
                     />
                 </div>
+            </div>
+
+            {/* Footer info */}
+            <div className="text-center py-3">
+                <p className="text-xs text-gray-500">
+                    Dashboard auto-refreshes every 30 seconds • Last updated:{' '}
+                    {new Date().toLocaleTimeString()}
+                </p>
             </div>
         </div>
     );

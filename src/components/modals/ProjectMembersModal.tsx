@@ -39,8 +39,8 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
         queryKey: ['workspaceMembers', workspaceId],
         queryFn: async () => {
             if (!workspaceId) return [];
-            const response = await api.get(`/workspaces/${workspaceId}/members`);
-            return response.data;
+            const response = await api.get(`/workspaces/${workspaceId}`);
+            return response.data?.members || [];
         },
         enabled: !!workspaceId && isOpen,
     });
@@ -73,8 +73,8 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
 
     // Remove member mutation
     const removeMemberMutation = useMutation({
-        mutationFn: (memberId: string) =>
-            api.delete(`/projects/${projectId}/members/${memberId}`),
+        mutationFn: (userId: string) =>
+            api.delete(`/projects/${projectId}/members/${userId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['project', projectId] });
         },
@@ -106,8 +106,13 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
 
     // Filter out users who are already members
     const nonMembers = workspaceMembers?.filter(
-        (user: any) =>
-            !project?.members?.some((m: any) => m.userId._id === user._id)
+        (user: any) => {
+            const userId = user.userId?._id || user._id;
+            return !project?.members?.some((m: any) => {
+                const memberId = m.userId?._id || m.userId;
+                return memberId === userId;
+            });
+        }
     ) || [];
 
     return (
@@ -129,12 +134,19 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
                             <option value="">
                                 {loadingWorkspace ? 'Loading...' : 'Select user...'}
                             </option>
-                            {nonMembers.map((user: any) => (
-                                <option key={user._id} value={user._id}>
-                                    {user.name} - {user.email}
-                                    {user.workspaceRole && ` (${user.workspaceRole})`}
-                                </option>
-                            ))}
+                            {nonMembers.map((user: any) => {
+                                const userId = user.userId?._id || user._id;
+                                const userName = user.userId?.name || user.name;
+                                const userEmail = user.userId?.email || user.email;
+                                const userRole = user.role || user.workspaceRole;
+
+                                return (
+                                    <option key={userId} value={userId}>
+                                        {userName} - {userEmail}
+                                        {userRole && ` (${userRole})`}
+                                    </option>
+                                );
+                            })}
                         </select>
                         <select
                             value={selectedRole}

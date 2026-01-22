@@ -40,7 +40,7 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
             icon: CheckSquare,
             color: 'text-purple-600',
             bgColor: 'bg-purple-50',
-            link: '/tasks',
+            link: '/my-tasks',
         },
         {
             title: 'Completed',
@@ -48,7 +48,7 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
             icon: CheckCircle,
             color: 'text-green-600',
             bgColor: 'bg-green-50',
-            link: '/tasks',
+            link: '/my-tasks',
         },
         {
             title: 'Team Members',
@@ -56,7 +56,7 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
             icon: Users,
             color: 'text-indigo-600',
             bgColor: 'bg-indigo-50',
-            link: '/team',
+            link: '/users',
         },
         {
             title: 'Overdue',
@@ -64,7 +64,7 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
             icon: AlertCircle,
             color: 'text-red-600',
             bgColor: 'bg-red-50',
-            link: '/tasks',
+            link: '/my-tasks',
         },
         {
             title: 'Due Today',
@@ -72,18 +72,18 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
             icon: Calendar,
             color: 'text-yellow-600',
             bgColor: 'bg-yellow-50',
-            link: '/tasks',
+            link: '/my-tasks',
         },
     ];
 
     if (isLoading) {
         return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[...Array(6)].map((_, i) => (
                     <Card key={i} padding="md">
                         <div className="animate-pulse">
-                            <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
-                            <div className="h-8 bg-gray-200 rounded w-16"></div>
+                            <div className="h-3 bg-gray-200 rounded w-16 mb-2"></div>
+                            <div className="h-6 bg-gray-200 rounded w-12"></div>
                         </div>
                     </Card>
                 ))}
@@ -92,25 +92,28 @@ const OverviewMetrics: FC<OverviewMetricsProps> = ({ data, isLoading }) => {
     }
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {metrics.map((metric, index) => (
-                <Card key={index} padding="md" className="h-full hover:shadow-md transition-shadow">
-                    <Link to={metric.link} className="block h-full">
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <p className="text-xs font-medium text-gray-600 mb-1">
+                <Link key={index} to={metric.link}>
+                    <Card
+                        padding="md"
+                        className="h-full hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group"
+                    >
+                        <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-gray-600 mb-1 truncate">
                                     {metric.title}
                                 </p>
-                                <p className="text-2xl font-bold text-gray-900">
+                                <p className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
                                     {metric.value}
                                 </p>
                             </div>
-                            <div className={`${metric.bgColor} p-3 rounded-lg`}>
-                                <metric.icon className={`w-5 h-5 ${metric.color}`} />
+                            <div className={`${metric.bgColor} p-2 rounded-lg flex-shrink-0`}>
+                                <metric.icon className={`w-4 h-4 ${metric.color}`} />
                             </div>
                         </div>
-                    </Link>
-                </Card>
+                    </Card>
+                </Link>
             ))}
         </div>
     );

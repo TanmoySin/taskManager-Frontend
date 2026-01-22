@@ -9,11 +9,10 @@ import { Star } from 'lucide-react';
 interface EditProjectModalProps {
     isOpen: boolean;
     onClose: () => void;
-    projectId: string;
-    initialData: any;
+    project: any;
 }
 
-const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, projectId, initialData }) => {
+const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, project }) => {
     const queryClient = useQueryClient();
     const [formData, setFormData] = useState({
         name: '',
@@ -29,35 +28,35 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, projectI
     });
 
     useEffect(() => {
-        if (initialData) {
+        if (project) {
             setFormData({
-                name: initialData.name || '',
-                description: initialData.description || '',
-                status: initialData.status || 'ACTIVE',
-                type: initialData.type || 'Web Development',
-                priority: initialData.priority || 'Medium',
-                startDate: initialData.startDate
-                    ? new Date(initialData.startDate).toISOString().split('T')[0]
+                name: project.name || '',
+                description: project.description || '',
+                status: project.status || 'ACTIVE',
+                type: project.type || 'Web Development',
+                priority: project.priority || 'Medium',
+                startDate: project.startDate
+                    ? new Date(project.startDate).toISOString().split('T')[0]
                     : '',
-                endDate: initialData.endDate
-                    ? new Date(initialData.endDate).toISOString().split('T')[0]
+                endDate: project.endDate
+                    ? new Date(project.endDate).toISOString().split('T')[0]
                     : '',
-                budget: initialData.budget != null ? String(initialData.budget) : '',
-                currency: initialData.currency || 'USD',
-                tags: Array.isArray(initialData.tags) ? initialData.tags.join(', ') : '',
+                budget: project.budget != null ? String(project.budget) : '',
+                currency: project.currency || 'USD',
+                tags: Array.isArray(project.tags) ? project.tags.join(', ') : '',
             });
         }
-    }, [initialData]);
+    }, [project]);
 
     const updateProjectMutation = useMutation({
         mutationFn: (data: any) => {
-            if (!initialData?.canManage) {
+            if (!project?.canManage) {
                 throw new Error("You don't have permission to edit this project");
             }
-            return api.patch(`/projects/${projectId}`, data);
+            return api.patch(`/projects/${project._id}`, data);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['project', project._id] });
             queryClient.invalidateQueries({ queryKey: ['projects'] });
             onClose();
         },
@@ -69,6 +68,18 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, projectI
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!formData.name.trim()) {
+            alert('Project name is required');
+            return;
+        }
+
+        if (formData.startDate && formData.endDate) {
+            if (new Date(formData.startDate) > new Date(formData.endDate)) {
+                alert('End date must be after start date');
+                return;
+            }
+        }
 
         const payload = {
             name: formData.name,
@@ -207,7 +218,6 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, projectI
                                 className="px-2 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             >
                                 <option value="USD">USD</option>
-                                <option value="EUR">EUR</option>
                                 <option value="INR">INR</option>
                             </select>
                         </div>
