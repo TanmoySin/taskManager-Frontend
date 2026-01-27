@@ -14,6 +14,7 @@ import VerifyEmail from './pages/protected/AuthAndUserManagement/VerifyEmail';
 import AcceptInvitation from './pages/protected/AuthAndUserManagement/AcceptInvitation';
 import ForgotPassword from './pages/protected/AuthAndUserManagement/ForgotPassword';
 import ResetPassword from './pages/protected/AuthAndUserManagement/ResetPassword';
+import { ToastContainer } from 'react-toastify';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +77,18 @@ function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Router>
+          <ToastContainer
+            position="top-right"
+            autoClose={3000}
+            hideProgressBar={false}
+            newestOnTop={true}
+            closeOnClick
+            rtl={false}
+            pauseOnFocusLoss
+            draggable
+            pauseOnHover
+            theme="light"
+          />
         </QueryClientProvider>
       </PersistGate>
     </Provider>

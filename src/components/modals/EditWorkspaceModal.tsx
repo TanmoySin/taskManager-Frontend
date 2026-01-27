@@ -7,6 +7,7 @@ import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { Building2, AlertCircle } from 'lucide-react';
+import { showToast } from '../../lib/toast';
 
 interface EditWorkspaceModalProps {
     isOpen: boolean;
@@ -49,7 +50,7 @@ const EditWorkspaceModal: FC<EditWorkspaceModalProps> = ({
             onClose();
         },
         onError: (error: any) => {
-            alert(
+            showToast.warning(
                 'Failed to update workspace: ' +
                 (error.response?.data?.error || error.message),
             );

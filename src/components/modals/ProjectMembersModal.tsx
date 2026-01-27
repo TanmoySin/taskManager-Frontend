@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import { UserPlus, Trash2, Shield } from 'lucide-react';
+import { showToast } from '../../lib/toast';
 
 interface ProjectMembersModalProps {
     isOpen: boolean;
@@ -55,7 +56,10 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
             setSelectedRole('CONTRIBUTOR');
         },
         onError: (error: any) => {
-            alert('Failed to add member: ' + (error.response?.data?.error || error.message));
+            showToast.warning(
+                'Failed to update workspace: ' +
+                (error.response?.data?.error || error.message),
+            );
         },
     });
 
@@ -67,7 +71,7 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
             queryClient.invalidateQueries({ queryKey: ['project', projectId] });
         },
         onError: (error: any) => {
-            alert('Failed to update role: ' + (error.response?.data?.error || error.message));
+            showToast.warning('Failed to update role: ' + (error.response?.data?.error || error.message));
         },
     });
 
@@ -79,7 +83,7 @@ const ProjectMembersModal: FC<ProjectMembersModalProps> = ({
             queryClient.invalidateQueries({ queryKey: ['project', projectId] });
         },
         onError: (error: any) => {
-            alert('Failed to remove member: ' + (error.response?.data?.error || error.message));
+            showToast.warning('Failed to remove member: ' + (error.response?.data?.error || error.message));
         },
     });
 

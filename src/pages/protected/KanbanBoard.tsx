@@ -38,6 +38,7 @@ import {
     EyeOff,
 } from 'lucide-react';
 import KanbanSettingsModal from './KanbanSettingsModal';
+import { showToast } from '../../lib/toast';
 
 interface TaskCardProps {
     task: any;
@@ -430,7 +431,7 @@ export default function KanbanBoard() {
             queryClient.invalidateQueries({ queryKey: ['kanbanBoard'] });
         },
         onError: (error: any) => {
-            alert('Failed to update task: ' + (error.response?.data?.error || error.message));
+            showToast.error(error.response?.data?.error || 'Failed to update task');
         },
     });
 
@@ -514,13 +515,13 @@ export default function KanbanBoard() {
                     currentCount: columnTasks.length + 1,
                 });
                 if (!result.data?.allowed) {
-                    alert(
-                        `WIP limit exceeded for ${newStatus}!\nCurrent: ${columnTasks.length}, Limit: ${wipLimit}`
+                    showToast.warning(
+                        `WIP limit exceeded for ${newStatus}! Current: ${columnTasks.length}, Limit: ${wipLimit}`
                     );
                     return;
                 }
             } catch (error: any) {
-                alert('Failed to check WIP limit: ' + (error.response?.data?.error || error.message));
+                showToast.error(error.response?.data?.error || 'Failed to check WIP limit');
                 return;
             }
         }

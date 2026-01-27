@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { UserPlus, Search } from 'lucide-react';
+import { showToast } from '../../lib/toast';
 
 interface AddMemberModalProps {
     isOpen: boolean;
@@ -46,10 +47,10 @@ const AddMemberModal: FC<AddMemberModalProps> = ({
             onClose();
         },
         onError: (error: any) => {
-            alert(
+            showToast.warning(
                 'Failed to add member: ' +
                 (error.response?.data?.error || error.message),
-            );
+            )
         },
     });
 
@@ -62,7 +63,7 @@ const AddMemberModal: FC<AddMemberModalProps> = ({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedUserId) {
-            alert('Please select a user');
+            showToast.warning('Please select a user');
             return;
         }
         addMemberMutation.mutate({ userId: selectedUserId, role: selectedRole });

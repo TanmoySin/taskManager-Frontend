@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { Star } from 'lucide-react';
+import { showToast } from '../../lib/toast';
 
 interface EditProjectModalProps {
     isOpen: boolean;
@@ -61,7 +62,7 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, project 
             onClose();
         },
         onError: (error: any) => {
-            alert('Failed to update: ' + (error.response?.data?.error || error.message));
+            showToast.warning('Failed to update: ' + (error.response?.data?.error || error.message));
         },
     });
 
@@ -70,13 +71,13 @@ const EditProjectModal: FC<EditProjectModalProps> = ({ isOpen, onClose, project 
         e.preventDefault();
 
         if (!formData.name.trim()) {
-            alert('Project name is required');
+            showToast.warning('Project name is required');
             return;
         }
 
         if (formData.startDate && formData.endDate) {
             if (new Date(formData.startDate) > new Date(formData.endDate)) {
-                alert('End date must be after start date');
+                showToast.warning('End date must be after start date');
                 return;
             }
         }

@@ -9,10 +9,20 @@ import api from '../../../lib/api';
 
 const MyTimeWidget: FC = () => {
     const queryClient = useQueryClient();
+    const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+
     const { data: timeData, isLoading: timeLoading } = useMyTimeUtilization();
     const { data: activeTimer, isLoading: timerLoading } = useActiveTimer();
     const { data: timeLogs } = useMyTimeLogs(5);
-    const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+
+    const { data: myTasksResponse } = useQuery({
+        queryKey: ['myActiveTasks'],
+        queryFn: async () => {
+            const response = await api.get('/tasks/my-tasks?status=TODO,IN_PROGRESS');
+            return response.data;
+        },
+        staleTime: 30000,
+    });
 
     const startTimerMutation = useMutation({
         mutationFn: (taskId: string) => api.post(`/time-tracking/tasks/${taskId}/timer/start`),
@@ -30,6 +40,27 @@ const MyTimeWidget: FC = () => {
         },
     });
 
+    const activeTasks = Array.isArray(myTasksResponse?.tasks)
+        ? myTasksResponse.tasks
+        : Array.isArray(myTasksResponse)
+            ? myTasksResponse
+            : [];
+
+    const todayHours = timeData?.todayHours || 0;
+    const weekHours = timeData?.weekHours || 0;
+    const utilization = timeData?.utilization || 0;
+    const avgHoursPerDay = timeData?.averageHoursPerDay || 0;
+
+    const hasActiveTimer = activeTimer?.isRunning || false;
+    const activeTaskTitle = activeTimer?.taskId?.title || 'Unknown Task';
+    const timerDuration = activeTimer?.duration || 0;
+
+    const formatDuration = (minutes: number) => {
+        const hours = Math.floor(minutes / 60);
+        const mins = Math.floor(minutes % 60);
+        return `${hours}h ${mins}m`;
+    };
+
     if (timeLoading || timerLoading) {
         return (
             <Card padding="none">
@@ -44,32 +75,6 @@ const MyTimeWidget: FC = () => {
             </Card>
         );
     }
-
-    const todayHours = timeData?.todayHours || 0;
-    const weekHours = timeData?.weekHours || 0;
-    const utilization = timeData?.utilization || 0;
-    const avgHoursPerDay = timeData?.averageHoursPerDay || 0;
-
-    const hasActiveTimer = activeTimer?.isRunning || false;
-    const activeTaskTitle = activeTimer?.taskId?.title || 'Unknown Task';
-    const timerDuration = activeTimer?.duration || 0;
-
-    const { data: myTasks } = useQuery({
-        queryKey: ['myActiveTasks'],
-        queryFn: async () => {
-            const response = await api.get('/tasks/my-tasks?status=TODO,IN_PROGRESS');
-            return response.data;
-        },
-        enabled: !hasActiveTimer,
-    });
-
-    const activeTasks = Array.isArray(myTasks) ? myTasks : [];
-
-    const formatDuration = (minutes: number) => {
-        const hours = Math.floor(minutes / 60);
-        const mins = Math.floor(minutes % 60);
-        return `${hours}h ${mins}m`;
-    };
 
     return (
         <Card padding="none">
@@ -140,7 +145,6 @@ const MyTimeWidget: FC = () => {
                     </div>
                 )}
 
-
                 {/* Time Stats */}
                 <div className="grid grid-cols-2 gap-2">
                     <div className="p-3 bg-blue-50 rounded-lg">
@@ -197,6 +201,7 @@ const MyTimeWidget: FC = () => {
                         {avgHoursPerDay.toFixed(1)}h
                     </span>
                 </div>
+
                 {/* Recent Time Logs */}
                 {timeLogs && timeLogs.length > 0 && (
                     <div className="pt-3 border-t border-gray-200">
@@ -231,7 +236,7 @@ const MyTimeWidget: FC = () => {
                     </div>
                 )}
             </div>
-        </Card >
+        </Card>
     );
 };
 

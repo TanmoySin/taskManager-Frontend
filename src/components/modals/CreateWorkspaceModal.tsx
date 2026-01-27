@@ -7,6 +7,7 @@ import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { Users, Building2, AlertCircle } from 'lucide-react';
 import { useAppSelector } from '../../store/hooks'; // 🔥 ADD THIS
+import { showToast } from '../../lib/toast';
 
 interface CreateWorkspaceModalProps {
     isOpen: boolean;
@@ -34,10 +35,10 @@ const CreateWorkspaceModal: FC<CreateWorkspaceModalProps> = ({
             resetForm();
         },
         onError: (error: any) => {
-            alert(
+            showToast.warning(
                 'Failed to create workspace: ' +
                 (error.response?.data?.error || error.message),
-            );
+            )
         },
     });
 

@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { FolderKanban, Calendar, Star, Users, DollarSign, Tag, Sparkles } from 'lucide-react';
+import { showToast } from '../../lib/toast';
 
 interface CreateProjectModalProps {
     isOpen: boolean;
@@ -61,7 +62,7 @@ const CreateProjectModal: FC<CreateProjectModalProps> = ({ isOpen, onClose }) =>
         },
         onError: (error: any) => {
             const errorMsg = error.response?.data?.error || 'Failed to create project';
-            alert(errorMsg);
+            showToast.warning(errorMsg);
         },
     });
 
@@ -95,19 +96,19 @@ const CreateProjectModal: FC<CreateProjectModalProps> = ({ isOpen, onClose }) =>
 
         // Validation
         if (!formData.name.trim()) {
-            alert('Project name is required');
+            showToast.warning('Project name is required');
             return;
         }
 
         if (!formData.workspaceId) {
-            alert('Please select a workspace');
+            showToast.warning('Please select a workspace');
             return;
         }
 
         // Date validation
         if (formData.startDate && formData.endDate) {
             if (new Date(formData.startDate) > new Date(formData.endDate)) {
-                alert('End date must be after start date');
+                showToast.warning('End date must be after start date');
                 return;
             }
         }
